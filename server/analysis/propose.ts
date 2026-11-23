@@ -3,6 +3,7 @@
 // evidence is re-verified locally; proposed ids must map to real current steps.
 import type { Id, Proposal, Session } from '../../shared/p0/types';
 import {
+	assertLocalKeyPrefix,
 	buildSourceIndex,
 	parseProposeOutput,
 	resolveEvidence,
@@ -67,6 +68,7 @@ function assembleProposal(
 			);
 		}
 		proposedKeys.add(step.key);
+		assertLocalKeyPrefix(step.key, 'pstep', 'proposed step');
 		for (const currentId of step.currentStepIds) {
 			if (!currentStepIds.has(currentId)) {
 				throw new StageError(
@@ -75,6 +77,12 @@ function assembleProposal(
 				);
 			}
 		}
+	}
+	if (proposedKeys.size === 0) {
+		throw new StageError(
+			'invalid_model_output',
+			'Proposal output contains no proposed steps.',
+		);
 	}
 
 	const proposedSteps = output.steps.map((step) => ({
@@ -86,6 +94,7 @@ function assembleProposal(
 		),
 	}));
 
+	const proposedEdgeKeys = new Set<string>();
 	const proposedEdges = output.edges.map((edge) => {
 		if (!proposedKeys.has(edge.fromKey) || !proposedKeys.has(edge.toKey)) {
 			throw new StageError(
@@ -93,6 +102,14 @@ function assembleProposal(
 				`Proposed edge '${edge.key}' connects steps outside the proposal.`,
 			);
 		}
+		if (proposedEdgeKeys.has(edge.key)) {
+			throw new StageError(
+				'invalid_model_output',
+				`Duplicate proposed edge key '${edge.key}'.`,
+			);
+		}
+		proposedEdgeKeys.add(edge.key);
+		assertLocalKeyPrefix(edge.key, 'pedge', 'proposed edge');
 		return {
 			id: edge.key,
 			fromStepId: edge.fromKey,

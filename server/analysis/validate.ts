@@ -114,6 +114,25 @@ export function checkTransitionProvenance(input: {
 	return { accepted: true };
 }
 
+/**
+ * New nodes take their per-response local candidate key as the persisted id, so
+ * the key must already follow the server-assigned prefix convention for that
+ * collection (`step_`, `edge_`, `q_`, `opp_`, `pstep_`, `pedge_`).
+ */
+export function assertLocalKeyPrefix(
+	key: string,
+	prefix: string,
+	what: string,
+): void {
+	const pattern = new RegExp(`^${prefix}_[a-z0-9][a-z0-9_-]*$`, 'i');
+	if (!pattern.test(key)) {
+		throw new StageError(
+			'invalid_model_output',
+			`${what} key '${key}' must use the '${prefix}_' id prefix.`,
+		);
+	}
+}
+
 export function parseExtractOutput(raw: unknown): ExtractOutput {
 	return parseStageOutput(ExtractOutputSchema, raw);
 }

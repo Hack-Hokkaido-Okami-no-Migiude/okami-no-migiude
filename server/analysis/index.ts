@@ -7,6 +7,7 @@ export { propose, type ProposalResult } from './propose';
 export { renderPlanMarkdown } from './markdown';
 export { runKey } from './keys';
 export { computeInvalidation, type Invalidation } from './invalidate';
-export { refreshProposalStaleness } from './staleness';
+export { refreshProposalStaleness, isProposalExportBlocked } from './staleness';
+export { rankOpportunities, opportunityScore } from './ranking';
 export type { AnalysisProvider } from './provider';
 export { StageError } from '../../shared/p0/stages';

@@ -16,7 +16,7 @@ import {
 import { z } from 'zod';
 
 /** Bump when a stage contract changes shape or meaning. */
-export const STAGE_SCHEMA_VERSION = 1;
+export const STAGE_SCHEMA_VERSION = 2;
 
 // ---------------------------------------------------------------------------
 // Stage error type (published for the wave; HTTP mapping lives in server/utils/http.ts)
@@ -81,6 +81,11 @@ export const ExtractInputSchema = z.strictObject({
 				questionId: IdSchema,
 				factKey: FactKeySchema,
 				targetStepId: IdSchema.nullable(),
+				// A saved answer is first-class evidence: its persisted id and
+				// revision let a live provider cite it like a transcript row
+				// (sourceId = answerId, sourceRev = answerRev).
+				answerId: IdSchema,
+				answerRev: z.number().int().min(1),
 				text: nonblank(),
 			}),
 		)

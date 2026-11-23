@@ -1,10 +1,12 @@
 // Pure invalidation helpers published for the storage seam. The store (or any
 // writer) calls `computeInvalidation` when committing source/answer/assumption
-// edits; no provider, store, or Nitro imports happen here.
+// edits; no provider, store, or Nitro imports happen here. Discovery commits
+// bypass this helper — a fresh discovery rewrites the workflow itself and must
+// not immediately stale its own run.
 import type { Id, Proposal, Session } from '../../shared/p0/types';
 
 export type Invalidation = {
-	/** Transcript rows or saved answers changed: discovery is stale. */
+	/** Transcript rows, saved answers, or step corrections changed: discovery is stale. */
 	discoveryStale: boolean;
 	/** Proposals whose own basis (current graph + opportunity incl. assumptions) changed. */
 	staleProposalIds: Id[];
@@ -16,7 +18,9 @@ export function computeInvalidation(
 ): Invalidation {
 	return {
 		discoveryStale:
-			!sameTranscript(previous, next) || !sameAnswers(previous, next),
+			!sameTranscript(previous, next)
+			|| !sameAnswers(previous, next)
+			|| !sameWorkflow(previous, next),
 		staleProposalIds: next.proposals
 			.filter((proposal) =>
 				proposalBasisChanged(previous, next, proposal),
@@ -37,6 +41,11 @@ function sameAnswers(previous: Session, next: Session): boolean {
 			answer: question.answer,
 		}));
 	return stableJson(answerOf(previous)) === stableJson(answerOf(next));
+}
+
+/** A step correction changes the graph, which is part of discovery's basis. */
+function sameWorkflow(previous: Session, next: Session): boolean {
+	return stableJson(previous.workflow) === stableJson(next.workflow);
 }
 
 function proposalBasisChanged(

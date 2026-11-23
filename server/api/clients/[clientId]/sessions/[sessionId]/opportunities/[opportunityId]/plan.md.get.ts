@@ -26,6 +26,13 @@ export default defineEventHandler((event) =>
 				'No proposal exists for this opportunity.',
 			);
 		}
+		if (record.session.discovery?.stale) {
+			throw httpError(
+				409,
+				'stale_artifact',
+				'Discovery is stale; run analyze again before exporting the plan.',
+			);
+		}
 		if (proposal.stale) {
 			throw httpError(
 				409,

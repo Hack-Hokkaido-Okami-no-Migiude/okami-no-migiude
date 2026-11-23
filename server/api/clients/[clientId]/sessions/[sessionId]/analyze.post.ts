@@ -73,9 +73,11 @@ export default defineEventHandler((event) =>
 					provider,
 				);
 				const proposals = refreshProposalStaleness(
-					fresh.session,
 					{ ...fresh.session, ...patch },
 					provider,
+					// Generation fingerprints committed with each proposal: a
+					// proposal whose basis changed since generation stays stale.
+					fresh.keys.proposals,
 				);
 				const next: SessionRecord = {
 					session: { ...fresh.session, ...patch, proposals },

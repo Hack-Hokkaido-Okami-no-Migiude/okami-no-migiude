@@ -2,6 +2,9 @@
 	"name": "nuxt-template-bootstrap",
 	"private": true,
 	"type": "module",
+	"imports": {
+		"#shared/*": "./shared/*"
+	},
 	"scripts": {
 		"build": "nuxt build",
 		"dev": "dotenvx run --env NODE_OPTIONS=--enable-source-maps -- nuxt dev",
@@ -10,9 +13,11 @@
 		"lint": "eslint .",
 		"postinstall": "nuxt prepare",
 		"preview": "nuxt preview",
-		"start": "node --env-file-if-exists=.env .output/server/index.mjs",
-		"test": "npm run build && node --import tsx --test tests/smoke/p0-slice.test.ts",
-		"test:smoke": "node --import tsx --test tests/smoke/p0-slice.test.ts",
+		"start": "node --env-file-if-exists=.env scripts/start.mjs",
+		"test": "npm run build && npm run test:unit && npm run test:api && npm run test:smoke",
+		"test:unit": "node --import tsx --test \"tests/store/*.test.ts\" \"tests/analysis/*.test.ts\" \"tests/demo/*.test.ts\" \"tests/ui/*.test.ts\"",
+		"test:api": "node --import tsx --test \"tests/api/*.test.ts\"",
+		"test:smoke": "node --import tsx --test \"tests/smoke/*.test.ts\"",
 		"typecheck": "nuxt typecheck"
 	},
 	"allowScripts": {

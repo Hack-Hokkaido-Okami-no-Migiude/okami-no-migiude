@@ -2,8 +2,17 @@
 // same-directory writes, serialized read/modify/write commits, CAS on session rev.
 // No in-memory fallback: every read hits disk and a malformed primary is never
 // replaced with an empty store.
-import type { Client, Id, Session } from '../../shared/p0/types';
-import { ClientSchema, SessionSchema } from '../../shared/p0/schemas';
+import type {
+	Client,
+	Id,
+	Session,
+	SessionSummary,
+} from '../../shared/p0/types';
+import {
+	ClientSchema,
+	SessionSchema,
+	SessionSummarySchema,
+} from '../../shared/p0/schemas';
 import {
 	closeSync,
 	existsSync,
@@ -15,6 +24,8 @@ import {
 	rmSync,
 	writeSync,
 } from 'node:fs';
+import { StoreLookupError } from './errors';
+import { newId } from './ids';
 import path from 'node:path';
 
 export type SessionKey = { clientId: Id; sessionId: Id };
@@ -260,5 +271,85 @@ export async function getOrCreateHotelDemo(seed: {
 			sessions: { ...snapshot.sessions, [sessionKey]: record },
 		});
 		return record;
+	});
+}
+
+// ---------------------------------------------------------------------------
+// Client and session directory (user-created records; the demo seed inserts
+// itself through getOrCreateHotelDemo)
+// ---------------------------------------------------------------------------
+
+export async function readClient(id: Id): Promise<Client | null> {
+	return readSnapshot().clients[id] ?? null;
+}
+
+export async function listClients(): Promise<Client[]> {
+	return Object.values(readSnapshot().clients);
+}
+
+/** Create a client with a server-assigned id; names are not unique. */
+export async function createClient(name: string): Promise<Client> {
+	return enqueue(() => {
+		const snapshot = readSnapshot();
+		const client = ClientSchema.parse({ id: newId('cli'), name });
+		writeSnapshotAtomic({
+			...snapshot,
+			clients: { ...snapshot.clients, [client.id]: client },
+		});
+		return client;
+	});
+}
+
+/** Session summaries for one client, in creation order. */
+export async function listSessions(clientId: Id): Promise<SessionSummary[]> {
+	const snapshot = readSnapshot();
+	return Object.values(snapshot.sessions)
+		.filter((record) => record.session.clientId === clientId)
+		.map((record) =>
+			SessionSummarySchema.parse({
+				id: record.session.id,
+				clientId: record.session.clientId,
+				title: record.session.title,
+				rev: record.session.rev,
+				origin: record.session.origin,
+			}),
+		);
+}
+
+/** Create an empty user session under an existing client. */
+export async function createSession(
+	clientId: Id,
+	title: string,
+): Promise<Session> {
+	return enqueue(() => {
+		const snapshot = readSnapshot();
+		if (!snapshot.clients[clientId]) {
+			throw new StoreLookupError('Unknown client.');
+		}
+		const session: Session = validatedSession({
+			id: newId('ses'),
+			clientId,
+			title,
+			rev: 1,
+			origin: 'user',
+			transcript: null,
+			workflow: { steps: [], edges: [] },
+			questions: [],
+			opportunities: [],
+			proposals: [],
+			discovery: null,
+			reviewNotices: [],
+		});
+		writeSnapshotAtomic({
+			...snapshot,
+			sessions: {
+				...snapshot.sessions,
+				[snapshotKey({ clientId, sessionId: session.id })]: {
+					session,
+					keys: { discovery: null, proposals: {} },
+				},
+			},
+		});
+		return session;
 	});
 }

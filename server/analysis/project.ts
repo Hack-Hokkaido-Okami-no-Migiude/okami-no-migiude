@@ -29,6 +29,10 @@ export function projectExtractInput(
 						questionId: question.id,
 						factKey: question.factKey,
 						targetStepId: question.targetStepId,
+						// The persisted answer identity: a live provider cites the
+						// saved answer as evidence by id and revision.
+						answerId: question.answer.id,
+						answerRev: question.answer.sourceRev,
 						text: question.answer.text,
 					},
 				]

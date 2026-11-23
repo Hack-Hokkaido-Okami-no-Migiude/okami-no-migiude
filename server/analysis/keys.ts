@@ -1,10 +1,12 @@
 // Canonical artifact keys for idempotent analysis runs. Keys cover ordered source
-// rows/revisions, saved answers, and (for proposals) the current graph and the
-// opportunity including assumptions — never timestamps, aggregate revs, or outputs.
-import type { Id, Session } from '../../shared/p0/types';
+// rows/revisions, saved answers, consultant-authored overrides (for discovery),
+// and (for proposals) the current graph and the opportunity including
+// assumptions — never timestamps, aggregate revs, or generated outputs.
+import type { Id, Session, Step } from '../../shared/p0/types';
 import type { AnalysisProvider } from './provider';
 import { STAGE_SCHEMA_VERSION } from '../../shared/p0/stages';
 import { createHash } from 'node:crypto';
+import { isPreservedClaim } from './claims';
 
 function sha256Hex(value: string): string {
 	return createHash('sha256').update(value).digest('hex');
@@ -48,6 +50,10 @@ export function runKey(
 			:	[],
 		),
 		graph: operation === 'propose' ? session.workflow : undefined,
+		overrides:
+			operation === 'discover' ?
+				consultantOverrides(session.workflow)
+			:	undefined,
 		opportunity:
 			operation === 'propose' ?
 				(session.opportunities.find(
@@ -58,4 +64,47 @@ export function runKey(
 			operation === 'propose' ? (opportunityId ?? null) : undefined,
 	};
 	return sha256Hex(JSON.stringify(payload));
+}
+
+const OVERRIDABLE_CLAIM_FIELDS = [
+	'label',
+	'role',
+	'tool',
+	'inputs',
+	'outputs',
+	'execution',
+	'bottleneck',
+	'exception',
+] as const;
+
+/**
+ * Consultant-authored or verified step claims are "relevant overrides": they
+ * change what a re-analysis must preserve, so they belong in the discovery key.
+ * Analysis-authored claims are regenerated every run and must stay out of the
+ * key, or no run after the first could ever be recognized as unchanged.
+ */
+function consultantOverrides(graph: Session['workflow']): unknown[] {
+	const overrides: unknown[] = [];
+	for (const step of graph.steps) {
+		const claims = OVERRIDABLE_CLAIM_FIELDS.flatMap((field) => {
+			const claim = step[field as keyof Step] as Step['label'];
+			if (!isPreservedClaim(claim)) {
+				return [];
+			}
+			return [
+				{
+					field,
+					value: claim.value,
+					state: claim.state,
+					author: claim.author,
+					inference: claim.inference ?? null,
+					evidence: claim.evidence,
+				},
+			];
+		});
+		if (claims.length > 0) {
+			overrides.push({ stepId: step.id, claims });
+		}
+	}
+	return overrides;
 }
