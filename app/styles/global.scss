@@ -1,9 +1,15 @@
+// Global styles for the P0 slice. The demo must not depend on remote fonts or
+// CSS, so only local files and system font stacks are used here. The UI wave can
+// reintroduce a full design system (e.g. Bootstrap) locally when it lands.
 @use 'icons.scss';
-@import url('https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css')
-layer(bootstrap);
 
 body {
-	font-family: 'Inter', sans-serif;
+	font-family:
+		system-ui,
+		-apple-system,
+		'Segoe UI',
+		Roboto,
+		sans-serif;
 	font-optical-sizing: auto;
 	font-style: normal;
 }
