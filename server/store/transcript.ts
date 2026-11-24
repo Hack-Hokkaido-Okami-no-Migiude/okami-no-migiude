@@ -1,11 +1,14 @@
 // Apply a transcript PUT body: rows without an id are created, rows with an id
 // replace the persisted row (all editable fields required), and array order is
-// the new row order. `sourceRev` increments only when a row's content actually
+// the new row order. `source` (P1) marks transcripts that contain recorded-
+// upload rows; when omitted the persisted origin is preserved (or `paste` for
+// a new transcript). `sourceRev` increments only when a row's content actually
 // changes — never on reorder — and a removed id can never be reused.
 import type {
 	Segment,
 	SegmentInput,
 	Transcript,
+	TranscriptSource,
 } from '../../shared/p0/types';
 import { StoreInputError } from './errors';
 import { newId } from './ids';
@@ -13,6 +16,7 @@ import { newId } from './ids';
 export function applyTranscriptInput(
 	current: Transcript | null,
 	inputs: readonly SegmentInput[],
+	source?: TranscriptSource,
 ): { transcript: Transcript } {
 	const previousById = new Map(
 		(current?.segments ?? []).map((segment) => [segment.id, segment]),
@@ -68,5 +72,10 @@ export function applyTranscriptInput(
 		});
 	}
 
-	return { transcript: { source: 'paste', segments } };
+	return {
+		transcript: {
+			source: source ?? current?.source ?? 'paste',
+			segments,
+		},
+	};
 }

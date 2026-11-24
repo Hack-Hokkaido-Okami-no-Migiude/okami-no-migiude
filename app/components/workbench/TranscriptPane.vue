@@ -4,19 +4,19 @@
 		Segment,
 		SegmentInput,
 	} from '#shared/p0/types';
+	import {
+		audioDraftRows,
+		draftRowFromSegmentInput,
+		parseTranscriptPaste,
+		transcriptSaveSource,
+	} from '../../composables/workbenchModel';
+	import type { DraftRow } from '../../composables/workbenchModel';
+	import type { DraftSegment } from '#shared/p1/audio';
 	import type { EvidenceSource } from '../../composables/workbenchDescriptors';
 	import EvidenceSourceReader from './EvidenceSourceReader.vue';
-	import { parseTranscriptPaste } from '../../composables/workbenchModel';
+	import RecordedAudioUpload from './RecordedAudioUpload.vue';
 	import { registerWorkbenchDraft } from '../../composables/useDraftProtection';
 
-	type DraftRow = {
-		key: string;
-		id?: string;
-		text: string;
-		speaker: string;
-		startMs: number | '';
-		endMs: number | '';
-	};
 	const props = defineProps<{
 		segments: Segment[];
 		answers: EvidenceSource[];
@@ -24,7 +24,11 @@
 		disabled: boolean;
 		selected: EvidenceRef | null;
 		jumpCount: number;
-		save: (segments: SegmentInput[]) => Promise<boolean>;
+		/** `${clientId}/${sessionId}` — scopes the recorded-upload control. */
+		sessionKey: string;
+		/** Current revision of that interview; passed to the upload control. */
+		revision: number;
+		save: (segments: SegmentInput[], source?: 'audio') => Promise<boolean>;
 		remove: () => Promise<boolean>;
 	}>();
 	const editing = ref(false);
@@ -34,7 +38,6 @@
 	const original = ref('');
 	const overwriteAccepted = ref(false);
 	const validation = ref('');
-	let rowCounter = 0;
 	const saved = computed(() => JSON.stringify(props.segments));
 	const diverged = computed(
 		() => editing.value && original.value !== saved.value,
@@ -49,21 +52,8 @@
 	const initialRows = ref('');
 	registerWorkbenchDraft(dirty);
 
-	function draftRow({
-		id,
-		text,
-		speaker,
-		startMs,
-		endMs,
-	}: SegmentInput): DraftRow {
-		return {
-			key: id ?? `draft-${++rowCounter}`,
-			...(id ? { id } : {}),
-			text,
-			speaker: speaker ?? '',
-			startMs: startMs ?? '',
-			endMs: endMs ?? '',
-		};
+	function draftRow(input: SegmentInput): DraftRow {
+		return draftRowFromSegmentInput(input);
 	}
 
 	function startEditing() {
@@ -140,9 +130,17 @@
 				'Give every row text, and make sure an end time does not precede its start.';
 			return;
 		}
-		if (await props.save(payload)) {
+		if (await props.save(payload, transcriptSaveSource(rows.value))) {
 			editing.value = false;
 		}
+	}
+
+	/** Unpersisted recording draft: review rows land in the editor, never the session. */
+	function applyRecordedDraft(segments: DraftSegment[]) {
+		if (!editing.value) {
+			startEditing();
+		}
+		rows.value.push(...audioDraftRows(segments));
 	}
 
 	async function deleteSaved() {
@@ -366,6 +364,12 @@
 			</div>
 		</form>
 		<h3 v-if="editing && hasTranscript">Saved source</h3>
+		<RecordedAudioUpload
+			:session-key="sessionKey"
+			:revision="revision"
+			:disabled="disabled"
+			@draft="applyRecordedDraft"
+		/>
 		<EvidenceSourceReader
 			:segments="segments"
 			:answers="answers"

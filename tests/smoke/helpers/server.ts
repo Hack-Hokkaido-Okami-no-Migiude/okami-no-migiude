@@ -65,7 +65,11 @@ function killProcessTree(pid: number): void {
  * durability checks); a fresh temp directory is created when omitted.
  */
 export async function startSmokeServer(
-	options: { dataDir?: string; live?: LiveConfig } = {},
+	options: {
+		dataDir?: string;
+		live?: LiveConfig;
+		audio?: { baseUrl: string; apiKey: string };
+	} = {},
 ): Promise<SmokeServer> {
 	if (!existsSync(serverEntry)) {
 		throw new Error(
@@ -91,6 +95,9 @@ export async function startSmokeServer(
 				NUXT_LLM_BASE_URL: options.live?.baseUrl ?? '',
 				NUXT_LLM_API_KEY: options.live?.apiKey ?? '',
 				NUXT_LLM_MODEL: options.live?.model ?? '',
+				// Recorded-upload provider config is opt-in per test server too.
+				NUXT_ELEVENLABS_BASE_URL: options.audio?.baseUrl ?? '',
+				NUXT_ELEVENLABS_API_KEY: options.audio?.apiKey ?? '',
 			},
 			stdio: ['ignore', 'pipe', 'pipe'],
 			windowsHide: true,

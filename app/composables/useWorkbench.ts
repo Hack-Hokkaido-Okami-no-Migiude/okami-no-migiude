@@ -14,6 +14,7 @@ import type {
 	SegmentInput,
 	Session,
 	SessionSummary,
+	TranscriptSource,
 } from '#shared/p0/types';
 import { buildRunRequest, removedReviewTargets } from './workbenchPolicy';
 
@@ -377,8 +378,11 @@ export function useWorkbench(hasUnsavedEdits: () => boolean) {
 		reload,
 		run,
 		downloadPlan,
-		saveTranscript: (segments: SegmentInput[]) =>
-			edit('Saving transcript…', '/transcript', 'PUT', { segments }),
+		saveTranscript: (segments: SegmentInput[], source?: TranscriptSource) =>
+			edit('Saving transcript…', '/transcript', 'PUT', {
+				segments,
+				...(source ? { source } : {}),
+			}),
 		deleteTranscript: () =>
 			edit('Deleting transcript…', '/transcript', 'DELETE'),
 		saveFinding: (id: string, fields: StepPatch, verify: boolean) =>

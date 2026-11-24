@@ -27,6 +27,7 @@ export default defineEventHandler((event) =>
 					transcript: applyTranscriptInput(
 						current.session.transcript,
 						body.segments,
+						body.source,
 					).transcript,
 				},
 			}),

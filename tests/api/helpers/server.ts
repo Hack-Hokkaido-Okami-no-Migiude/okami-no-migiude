@@ -50,8 +50,16 @@ function killProcessTree(pid: number): void {
 	}
 }
 
+/** Loopback-only recorded-upload provider configuration for the local stub. */
+export type AudioConfig = {
+	baseUrl: string;
+	apiKey: string;
+};
+
 /** Start the dev server once per test file; returns its base URL. */
-export async function startServer(): Promise<string> {
+export async function startServer(
+	options: { audio?: AudioConfig } = {},
+): Promise<string> {
 	if (baseUrl !== '') {
 		return baseUrl;
 	}
@@ -74,6 +82,10 @@ export async function startServer(): Promise<string> {
 				PORT: String(port),
 				HOST: '127.0.0.1',
 				NUXT_DATA_DIR: dataDirectory,
+				// Recorded-upload provider config is opt-in per test server; empty
+				// strings mean "unconfigured" and never inherit a developer's shell.
+				NUXT_ELEVENLABS_BASE_URL: options.audio?.baseUrl ?? '',
+				NUXT_ELEVENLABS_API_KEY: options.audio?.apiKey ?? '',
 			},
 			stdio: ['ignore', 'pipe', 'pipe'],
 			windowsHide: true,

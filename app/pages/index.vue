@@ -220,6 +220,8 @@
 						:selected="selectedEvidence"
 						:jump-count="jumpCount"
 						:disabled="writeDisabled"
+						:session-key="`${session.clientId}/${session.id}`"
+						:revision="session.rev"
 						:save="workbench.saveTranscript"
 						:remove="workbench.deleteTranscript"
 					/>

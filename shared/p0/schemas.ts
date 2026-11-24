@@ -220,9 +220,16 @@ export const SegmentSchema = z
 		}
 	});
 
-/** P0 accepts pasted transcripts only; `audio` stays reserved for P1. */
+export const SEGMENT_SOURCES = ['paste', 'audio'] as const;
+export const SegmentSourceSchema = z.enum(SEGMENT_SOURCES);
+
+/**
+ * Transcript origin. `paste` rows come from pasted text (P0); `audio` marks
+ * transcripts that contain rows derived from a recorded upload (P1), whether
+ * created fresh or appended to existing rows.
+ */
 export const TranscriptSchema = z.strictObject({
-	source: z.literal('paste'),
+	source: SegmentSourceSchema,
 	segments: z.array(SegmentSchema).max(5000),
 });
 

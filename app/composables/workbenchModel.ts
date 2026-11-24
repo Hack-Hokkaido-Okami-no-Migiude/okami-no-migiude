@@ -1,3 +1,4 @@
+import type { DraftSegment } from '#shared/p1/audio';
 import type { SegmentInput } from '#shared/p0/types';
 
 const TIMESTAMP = '(?:\\d{1,3}:)?\\d{1,2}:[0-5]\\d(?:\\.\\d{1,3})?';
@@ -64,4 +65,77 @@ export function parseTranscriptPaste(raw: string): SegmentInput[] {
 		segments.push(segment);
 	}
 	return segments;
+}
+
+// ---------------------------------------------------------------------------
+// Draft rows: the shared editor row shape, also used by the recorded-upload
+// control. Rows derived from a recording are marked `audio` so the save can
+// mark the transcript's origin; pasted rows never are.
+// ---------------------------------------------------------------------------
+
+export type DraftRow = {
+	key: string;
+	id?: string;
+	text: string;
+	speaker: string;
+	startMs: number | '';
+	endMs: number | '';
+	/** Present only on rows that came from a recorded upload draft. */
+	audio?: boolean;
+};
+
+let rowCounter = 0;
+
+export function draftRowFromSegmentInput(
+	input: SegmentInput,
+	options: { audio?: boolean } = {},
+): DraftRow {
+	rowCounter += 1;
+	return {
+		key: input.id ?? `draft-${rowCounter}`,
+		...(input.id ? { id: input.id } : {}),
+		text: input.text,
+		speaker: input.speaker ?? '',
+		startMs: input.startMs ?? '',
+		endMs: input.endMs ?? '',
+		...(options.audio ? { audio: true } : {}),
+	};
+}
+
+/** Map an unpersisted transcription draft into editor rows. */
+export function audioDraftRows(segments: readonly DraftSegment[]): DraftRow[] {
+	return segments.map((segment) =>
+		draftRowFromSegmentInput(
+			{
+				text: segment.text,
+				speaker: segment.speaker,
+				startMs: segment.startMs,
+				endMs: segment.endMs,
+			},
+			{ audio: true },
+		),
+	);
+}
+
+/**
+ * The `source` to send with a transcript save: `audio` only when rows derived
+ * from a recording are present; otherwise undefined (the persisted origin is
+ * preserved server-side).
+ */
+export function transcriptSaveSource(rows: readonly DraftRow[]): 'audio' | undefined {
+	return rows.some((row) => row.audio === true) ? 'audio' : undefined;
+}
+
+/**
+ * Whether a finished upload's draft may still be appended to the row editor:
+ * the session must not have been revised while the upload was in flight, so a
+ * stale response can never append rows across a revision change. Only the
+ * append is gated — an intentional CAS save and unsaved pasted draft rows are
+ * untouched either way.
+ */
+export function acceptsRecordedDraft(
+	revisionAtRequest: number,
+	revisionNow: number,
+): boolean {
+	return revisionAtRequest === revisionNow;
 }

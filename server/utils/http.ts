@@ -7,6 +7,7 @@ import {
 	ExecutionModeSchema,
 	PlanStatusSchema,
 	SegmentInputSchema,
+	SegmentSourceSchema,
 	nonblank,
 } from '../../shared/p0/schemas';
 import {
@@ -100,6 +101,8 @@ export const SessionCreateRequestSchema = z.strictObject({
 
 export const TranscriptPutRequestSchema = z.strictObject({
 	baseRev: z.number().int().min(1),
+	/** Optional P1 extension: marks the transcript as containing recorded rows. */
+	source: SegmentSourceSchema.optional(),
 	segments: z.array(SegmentInputSchema).max(5000),
 });
 

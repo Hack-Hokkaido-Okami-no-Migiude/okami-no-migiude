@@ -21,6 +21,7 @@ import type {
 	RunSchema,
 	SegmentInputSchema,
 	SegmentSchema,
+	SegmentSourceSchema,
 	SessionSchema,
 	SessionSummarySchema,
 	StepSchema,
@@ -34,6 +35,7 @@ export type Id = string;
 
 export type Segment = z.infer<typeof SegmentSchema>;
 export type SegmentInput = z.infer<typeof SegmentInputSchema>;
+export type TranscriptSource = z.infer<typeof SegmentSourceSchema>;
 export type Transcript = z.infer<typeof TranscriptSchema>;
 export type Answer = z.infer<typeof AnswerSchema>;
 export type EvidenceRef = z.infer<typeof EvidenceRefSchema>;

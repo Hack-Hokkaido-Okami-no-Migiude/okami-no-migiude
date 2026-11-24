@@ -1,10 +1,11 @@
 # Sapporo workflow discovery — P0 slice
 
 Transcript-to-plan workflow discovery for small businesses: paste an interview
-transcript, run evidence-backed discovery, review the reconstructed workflow,
-and export an implementation plan for one opportunity. This repository contains
-the P0 thin slice plus a fictional hotel demo that exercises the whole path
-without calling any external AI provider.
+transcript **or transcribe a recorded interview**, run evidence-backed
+discovery, review the reconstructed workflow, and export an implementation plan
+for one opportunity. This repository contains the P0 thin slice plus a
+fictional hotel demo that exercises the whole path without calling any external
+AI provider.
 
 The demo client is **Hotel Yuki Sapporo — a fictional hotel** used as a test
 fixture. Nothing in it describes a real business.
@@ -65,6 +66,77 @@ fall back to the fixture.
 > `invalid_model_output` without a retry, and 5xx responses retried exactly
 > once — in every failure case the saved session is left byte-identical with
 > no fixture fallback and no revision bump.
+
+## Recorded-audio transcription (optional, P1)
+
+The transcript editor also accepts a **recording file**. The recording is
+uploaded once to the ElevenLabs speech-to-text batch API (model `scribe_v3`,
+word-level timestamps, diarization) and returned as **unpersisted draft rows**
+in the same row editor as pasted text. Draft rows are never written to the
+session: a consultant relabels speakers (neutral `Speaker 1`, `Speaker 2` —
+identity is never inferred), fixes timestamps, then saves through the same
+CAS-guarded transcript PUT, which records `source: "audio"` for the persisted
+transcript. The draft can simply be discarded. If the interview is **revised
+while an upload is in flight** (an intentional CAS save included), the
+finished draft is **not appended**; the control says so and the recording can
+simply be uploaded again. Unsaved pasted draft rows are never touched by this
+guard, and the CAS-guarded save itself is unaffected.
+
+Consent and disclosure are mandatory: the control explains that **everyone in
+the recording agreed to be recorded** and that the audio will be transferred
+to the external transcription provider, whose default retention may store
+content in the US (this app does not enable zero-retention mode and does not
+claim it). The upload is rejected with `consent_required` (HTTP 422) before
+any outbound request unless the checkbox is acknowledged.
+
+Limits and safety properties (verified by tests, no real credentials needed):
+
+- **Server-side only key** `NUXT_ELEVENLABS_API_KEY` — like the LLM key it is
+  never sent to the browser, logged, or persisted. Without it the route fails
+  closed with `provider_unconfigured` (HTTP 503) and makes no outbound call.
+- **Fixed official endpoint** `https://api.elevenlabs.io` by default;
+  `NUXT_ELEVENLABS_BASE_URL` may point at a **loopback-only** address for
+  trusted local test configuration and is refused for anything non-loopback.
+  The base URL is never accepted from request payloads.
+- **Documented allowlist** (`.mp3`, `.wav`, `.flac`, `.ogg`, `.m4a`, `.webm`),
+  a 10 MiB cap, and a magic-byte signature check; the original filename is
+  never forwarded, logged, or persisted (uploads are renamed to a generic
+  basename before the provider call). The body must declare a **Content-Length
+  within the cap before anything is buffered** — browsers and `fetch` always
+  declare the size of a file upload, while chunked clients without a declared
+  size are rejected with `invalid_input` before a single byte is read (a
+  deliberate compatibility limit, not an oversight). The buffered parts are
+  re-checked against the cap after reading as defense in depth.
+- **One transcription attempt per upload** — no duplicate paid retries — with
+  a 120 s transcription timeout, redacted failures (`provider_failed`,
+  `invalid_model_output`; status codes and fixed phrases only, never provider
+  bodies or credentials), **redirects rejected** on every provider call so the
+  audio and key are never relayed to another endpoint, and the response
+  **streamed under a byte cap** instead of being buffered unbounded. Provider
+  failures never touch the saved transcript.
+- **The raw audio and the provider response are never stored by this app.** A
+  best-effort provider-side deletion (`DELETE /v1/speech-to-text/{id}`) runs
+  for every schema-validated transcription id — including responses whose
+  words turn out unusable, which fail with `invalid_model_output` and a fixed
+  phrase that states the cleanup outcome honestly. Its result is reported
+  verbatim in the response (`deleted` / `unavailable` / `failed`); retention
+  beyond that depends on the provider account's logging settings.
+
+Manual verification without credentials: run the bundled stub and generate a
+synthetic recording, then drive the flow in a browser:
+
+```bash
+node --import tsx scripts/dev-audio-stub.mjs            # loopback stub on :9378
+node scripts/make-sample-audio.mjs .data/sample.wav 2   # valid 2s WAV sample
+NUXT_ELEVENLABS_API_KEY=stub-local NUXT_ELEVENLABS_BASE_URL=http://127.0.0.1:9378 npm run dev
+```
+
+Browser steps: open a client/session → transcript card → *Or transcribe a
+recording* → accept the consent checkbox → choose the sample WAV → *Upload
+recording* → review the returned Japanese draft rows (edit speaker labels and
+times as needed) → **Save** (persists with `source: "audio"`) or *Discard
+changes* (nothing persisted). Without the stub key set, the same flow shows
+the fail-closed `provider_unconfigured` message instead.
 
 ## Verify
 
@@ -131,6 +203,7 @@ touches your `.data` directory and never calls the network.
 | `GET/POST /api/clients`, `GET/POST /api/clients/:clientId/sessions`                     | Client and session intake (scoped per client).                 |
 | `GET /api/clients/:clientId/sessions/:sessionId`                                        | Full session snapshot.                                         |
 | `PUT/DELETE /api/clients/:clientId/sessions/:sessionId/transcript`                      | Create/edit rows, or delete the transcript and derived work.   |
+| `POST /api/clients/:clientId/sessions/:sessionId/transcribe`                            | Recording → unpersisted diarized draft rows (consent + allowlist). |
 | `POST /api/clients/:clientId/sessions/:sessionId/analyze`                               | Discovery run (`fixture`/`live`, CAS via `baseRev`).           |
 | `PATCH /api/clients/:clientId/sessions/:sessionId/steps/:stepId`                        | Consultant corrections (`verify` optional, evidence required). |
 | `PUT /api/clients/:clientId/sessions/:sessionId/questions/:questionId/answer`           | Record or edit one documented answer.                          |
@@ -160,16 +233,22 @@ Errors use one envelope: `{ "error": { code, message, … } }` with codes
 - Savings figures are arithmetic on consultant-provided assumption inputs with
   cited bases; they are estimates, not measurements. Provenance validation
   establishes where a claim came from, not that it is factually true.
-- Interview audio handling (retention, transcription, deletion) is out of
-  scope for this slice; transcripts here are pasted text only.
+- Recorded-audio transcription is an optional, clearly-labeled alternative to
+  pasted text (see its section above): the draft review step is mandatory, the
+  app retains no audio or provider response, and consent precedes every
+  upload. Retention on the provider side is governed by that provider's
+  account settings, which this app neither controls nor claims to disable.
 
 ## Layout
 
 ```
 server/demo/hotel.ts          fictional seed + canned fixture provider (this slice)
 server/analysis/              discovery, proposals, staleness, markdown seams
+server/audio/                 recorded-audio validation, transcription, drafts
 server/api/, server/store/    Nitro routes and the JSON snapshot store
 shared/p0/                    stage schemas, persisted schemas, wire contracts
+shared/p1/                    recorded-audio contracts (allowlist, draft shape)
+scripts/                      sample-audio maker + local transcription stub
 tests/demo/                   fixture QA through the real seam (no build needed)
 tests/smoke/                  end-to-end smoke against the built server
 tests/ui/, tests/store/, …    coverage owned by the storage/workbench slices

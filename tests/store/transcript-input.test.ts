@@ -99,3 +99,27 @@ test('edits must send all editable fields', () => {
 		StoreInputError,
 	);
 });
+
+test('an explicit audio source is recorded and preserved by later edits', () => {
+	const created = applyTranscriptInput(
+		null,
+		[{ text: '受付です、ご予約ですね。', speaker: 'Speaker 1', startMs: 0, endMs: 2400 }],
+		'audio',
+	);
+	assert.equal(created.transcript.source, 'audio');
+	const [saved] = created.transcript.segments;
+	const edited = applyTranscriptInput(created.transcript, [
+		{
+			id: saved?.id ?? '',
+			speaker: '受付',
+			text: '受付です、ご予約ですね。',
+			startMs: 0,
+			endMs: 2400,
+		},
+	]);
+	assert.equal(
+		edited.transcript.source,
+		'audio',
+		'an omitted source preserves the persisted origin',
+	);
+});
