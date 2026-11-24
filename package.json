@@ -15,7 +15,7 @@
 		"preview": "nuxt preview",
 		"start": "node --env-file-if-exists=.env scripts/start.mjs",
 		"test": "npm run build && npm run test:unit && npm run test:api && npm run test:smoke",
-		"test:unit": "node --import tsx --test \"tests/store/*.test.ts\" \"tests/analysis/*.test.ts\" \"tests/demo/*.test.ts\" \"tests/ui/*.test.ts\"",
+		"test:unit": "node --import tsx --test \"tests/store/*.test.ts\" \"tests/analysis/*.test.ts\" \"tests/demo/*.test.ts\" \"tests/ui/*.test.ts\" \"tests/voice/*.test.ts\"",
 		"test:api": "node --import tsx --test \"tests/api/*.test.ts\"",
 		"test:smoke": "node --import tsx --test \"tests/smoke/*.test.ts\"",
 		"typecheck": "nuxt typecheck"
@@ -42,6 +42,7 @@
 		"subset-font": "^2.9.0",
 		"tsx": "^4.20.6",
 		"typescript": "^5.9.3",
-		"vue-tsc": "^3.1.8"
+		"vue-tsc": "^3.1.8",
+		"ws": "8.23.0"
 	}
 }
