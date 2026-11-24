@@ -1,256 +1,254 @@
 <script setup lang="ts">
-		import { questStateLabel, yenDisplay } from '../composables/shimaFormat';
-		import type { PublicTask } from '#shared/shima/schemas';
+	import type {
+		ShimaQuestDetail,
+		ShimaQuestSummary,
+	} from '~/composables/useShimaTypes';
+	import { questStateLabel, yenDisplay } from '~/composables/shimaFormat';
+	import { PublicTaskSchema } from '#shared/shima/schemas';
+	import ShimaPublicTask from '~/components/shima/ShimaPublicTask.vue';
+	import { shimaProblem } from '~/composables/useShimaPresentation';
+	import { useShimaSurface } from '~/composables/useShimaSurface';
 
-	// The public engineer board: the stable summary list, the exact published
-	// task detail, and the single-winner claim button. Same-origin only; the
-	// demo-engineer cookie is issued by the board read itself.
-	type QuestSummary = {
-		id: string;
-		rev: number;
-		state: 'available' | 'claimed';
-		title: string;
-		confirmedBudgetYen: number;
-		targetDate: string | null;
-	};
-
-	type QuestDetail = {
-		id: string;
-		rev: number;
-		state: 'available' | 'claimed';
-		task: PublicTask;
-	};
-
+	definePageMeta({ layout: false });
+	useHead({ title: 'シマエナガ｜依頼掲示板', htmlAttrs: { lang: 'ja' } });
+	const surface = useShimaSurface();
+	const demoBoard = computed(
+		() =>
+			surface.value === 'fixture-local'
+			|| surface.value === 'public-demo',
+	);
 	const route = useRoute();
+	const board = shallowRef<ShimaQuestSummary[]>([]);
+	const detail = shallowRef<ShimaQuestDetail | null>(null);
 	const busy = ref(false);
-	const problem = ref('');
+	const loaded = ref(false);
 	const notice = ref('');
-	const board = ref<QuestSummary[]>([]);
-	const detail = ref<QuestDetail | null>(null);
+	const problem = ref('');
+	const selectedId = ref<string | null>(null);
 
-	useHead({
-		title: 'しま掲示板（フィクション工事デモ）',
-		htmlAttrs: { lang: 'ja' },
-	});
-
-	function messageOf(error: unknown): string {
-		const data = (error as { data?: { error?: { message?: string } } })?.data;
-		return data?.error?.message ?? '操作に失敗しました。';
-	}
-
-	async function refresh() {
-		board.value = await $fetch<QuestSummary[]>('/api/quests');
-		const focus = route.query.q;
-		const focusId = typeof focus === 'string' ? focus : null;
-		if (focusId && board.value.some((entry) => entry.id === focusId)) {
-			await open(focusId);
+	async function readDetail(questId: string) {
+		const response = await $fetch<ShimaQuestDetail>(
+			`/api/quests/${encodeURIComponent(questId)}`,
+			{ retry: 0 },
+		);
+		if (
+			response.id !== questId
+			|| !PublicTaskSchema.safeParse(response.task).success
+		) {
+			throw new Error('Invalid public task');
 		}
+		return response;
 	}
 
-	async function open(questId: string) {
-		detail.value = await $fetch<QuestDetail>(`/api/quests/${questId}`);
+	async function readBoard(questId: string | null) {
+		// The fixture list read also establishes the synthetic claimant cookie.
+		const entries = await $fetch<ShimaQuestSummary[]>('/api/quests', {
+			retry: 0,
+		});
+		board.value = entries;
+		loaded.value = true;
+		detail.value = null;
+		selectedId.value = null;
+		if (questId && entries.some((entry) => entry.id === questId)) {
+			detail.value = await readDetail(questId);
+			selectedId.value = questId;
+		}
+		return detail.value;
 	}
 
-	async function claim() {
-		if (!detail.value) {
+	async function run(label: string, action: () => Promise<void>) {
+		if (busy.value || !demoBoard.value) {
 			return;
 		}
 		busy.value = true;
 		problem.value = '';
-		notice.value = '受け持っています…';
+		notice.value = label;
 		try {
-			await $fetch(`/api/quests/${detail.value.id}/claim`, {
-				method: 'POST',
-				body: { baseRev: detail.value.rev },
-				headers: { 'idempotency-key': crypto.randomUUID() },
-			});
-			await refresh();
-			notice.value = '受け持ちました。';
+			await action();
+			if (notice.value === label) {
+				notice.value = '';
+			}
 		} catch (error) {
-			problem.value = messageOf(error);
-			await refresh();
+			notice.value = '';
+			problem.value = shimaProblem(error);
 		} finally {
 			busy.value = false;
-			notice.value = '';
 		}
 	}
 
-	onMounted(() => {
-		void refresh();
-	});
+	function refresh() {
+		const focus =
+			selectedId.value
+			?? (typeof route.query.q === 'string' ? route.query.q : null);
+		return run('掲示板を読み込んでいます…', async () => {
+			detail.value = null;
+			await readBoard(focus);
+		});
+	}
+
+	function open(questId: string) {
+		return run('依頼を読み込んでいます…', async () => {
+			detail.value = null;
+			detail.value = await readDetail(questId);
+			selectedId.value = questId;
+		});
+	}
+
+	function claim() {
+		const target = detail.value;
+		if (!target || target.state !== 'available') {
+			return;
+		}
+		return run('申し込みを送信しています…', async () => {
+			detail.value = null;
+			try {
+				await $fetch(
+					`/api/quests/${encodeURIComponent(target.id)}/claim`,
+					{
+						method: 'POST',
+						body: { baseRev: target.rev },
+						headers: { 'Idempotency-Key': crypto.randomUUID() },
+						retry: 0,
+					},
+				);
+			} catch (error) {
+				await readBoard(target.id).catch(() => undefined);
+				throw error;
+			}
+			const confirmed = await readBoard(target.id);
+			if (confirmed?.id !== target.id || confirmed.state !== 'claimed') {
+				throw new Error('Claim not confirmed');
+			}
+			notice.value = 'デモの申し込みを記録しました。';
+		});
+	}
+
+	onMounted(refresh);
+	watch(
+		() => route.query.q,
+		() => {
+			selectedId.value = null;
+			void refresh();
+		},
+	);
 </script>
 
 <template>
-	<div class="quests-page">
-		<header class="quests-heading">
-			<div>
-				<p class="eyebrow">しま掲示板 / 公開タスク</p>
-				<h1>受け持ち可能な工事（デモ）</h1>
-			</div>
-			<div class="actions">
-				<span class="fixture-tag">フィクション・デモ — 実発注なし</span>
+	<main class="shima-shell">
+		<header class="shima-hero">
+			<p class="shima-kicker">シマエナガ</p>
+			<h1>依頼掲示板</h1>
+		</header>
+		<p
+			v-if="!demoBoard"
+			class="shima-panel"
+			data-testid="shima-board-closed"
+		>
+			この画面から掲示板を利用することはできません。
+		</p>
+		<template v-else>
+			<div class="shima-lane">
+				<strong
+					class="shima-tag"
+					data-testid="shima-fictional-label"
+					>架空のデモ・実発注なし</strong
+				>
 				<NuxtLink
-					class="pill"
-					to="/shima"
+					v-if="surface === 'fixture-local'"
+					to="/"
 					>オーナーページへ</NuxtLink
 				>
 			</div>
-		</header>
-		<p
-			v-if="problem"
-			class="problem"
-			role="alert"
-		>
-			{{ problem }}
-		</p>
-		<p
-			v-else-if="notice"
-			class="quiet"
-		>
-			{{ notice }}
-		</p>
-
-		<ul class="plain board">
-			<li
-				v-for="entry in board"
-				:key="entry.id"
+			<p
+				class="shima-status"
+				role="status"
+				aria-atomic="true"
 			>
-				<button
-					class="entry"
-					type="button"
-					@click="open(entry.id)"
-				>
-					<span class="title">{{ entry.title }}</span>
-					<span class="quiet fine mono">{{ yenDisplay(entry.confirmedBudgetYen) }}</span>
-					<span class="pill">{{ questStateLabel(entry.state) }}</span>
-				</button>
-			</li>
-		</ul>
-		<p
-			v-if="!board.length"
-			class="quiet"
-		>
-			公開中のタスクはありません。
-		</p>
-
-		<section
-			v-if="detail"
-			class="detail"
-		>
-			<h2>{{ detail.task.title }}</h2>
-			<p class="quiet fine mono">
-				{{ detail.id }}・改訂 {{ detail.rev }}・
-				{{ questStateLabel(detail.state) }}
+				{{ notice }}
 			</p>
-			<dl>
-				<dt>困りごと</dt>
-				<dd>{{ detail.task.problem }}</dd>
-				<dt>変更内容</dt>
-				<dd>{{ detail.task.proposedChange }}</dd>
-				<dt>確定額</dt>
-				<dd>{{ yenDisplay(detail.task.confirmedBudgetYen) }}</dd>
-				<dt>期日</dt>
-				<dd>{{ detail.task.targetDate }}</dd>
-				<dt>作れるもの</dt>
-				<dd>
-					<ul class="plain">
-						<li
-							v-for="item in detail.task.deliverables"
-							:key="item"
-						>
-							{{ item }}
-						</li>
-					</ul>
-				</dd>
-				<dt>受け入れ条件</dt>
-				<dd>
-					<ul class="plain">
-						<li
-							v-for="item in detail.task.acceptanceCriteria"
-							:key="item"
-						>
-							{{ item }}
-						</li>
-					</ul>
-				</dd>
-				<dt>必要なこと</dt>
-				<dd>
-					<ul class="plain">
-						<li
-							v-for="item in detail.task.skills"
-							:key="item"
-						>
-							{{ item }}
-						</li>
-					</ul>
-				</dd>
-			</dl>
-			<button
-				class="primary"
-				:disabled="busy || detail.state !== 'available'"
-				@click="claim"
+			<p
+				v-if="problem"
+				class="shima-warning"
+				role="alert"
 			>
-				受け持つ
-			</button>
-		</section>
-	</div>
+				{{ problem }}
+			</p>
+			<section
+				class="shima-panel"
+				aria-labelledby="shima-board-title"
+				:aria-busy="busy"
+			>
+				<h2 id="shima-board-title">依頼の一覧</h2>
+				<button
+					class="button"
+					type="button"
+					data-testid="shima-board-refresh"
+					:disabled="busy"
+					@click="refresh"
+				>
+					掲示板を更新
+				</button>
+				<p v-if="loaded && !board.length && !problem">
+					公開中の依頼はありません。
+				</p>
+				<ul
+					v-if="board.length"
+					class="shima-entries"
+				>
+					<li
+						v-for="entry in board"
+						:key="entry.id"
+					>
+						<button
+							class="button shima-entry"
+							type="button"
+							data-testid="shima-quest-open"
+							:aria-pressed="detail?.id === entry.id"
+							:disabled="busy"
+							@click="open(entry.id)"
+						>
+							<strong>{{ entry.title }}</strong>
+							<span
+								>{{ yenDisplay(entry.confirmedBudgetYen) }}・{{
+									entry.targetDate
+								}}・{{ questStateLabel(entry.state) }}</span
+							>
+						</button>
+					</li>
+				</ul>
+			</section>
+			<section
+				v-if="detail"
+				class="shima-panel"
+				aria-labelledby="shima-quest-title"
+				data-testid="shima-quest-detail"
+			>
+				<h2 id="shima-quest-title">{{ detail.task.title }}</h2>
+				<p
+					class="shima-tag"
+					data-testid="shima-quest-state"
+				>
+					{{ questStateLabel(detail.state) }}
+				</p>
+				<ShimaPublicTask :task="detail.task" />
+				<button
+					v-if="detail.state === 'available'"
+					class="button primary"
+					type="button"
+					data-testid="shima-quest-claim"
+					:disabled="busy"
+					@click="claim"
+				>
+					受け持つ（デモ）
+				</button>
+				<p v-else>
+					担当が決まったため、この依頼にはもう申し込めません。
+				</p>
+			</section>
+		</template>
+	</main>
 </template>
 
-<style scoped>
-	.quests-page {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		max-width: 60rem;
-	}
-	.quests-heading {
-		display: flex;
-		align-items: flex-end;
-		justify-content: space-between;
-		gap: 1rem;
-	}
-	.plain {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-	}
-	.board {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-	.entry {
-		display: flex;
-		gap: 0.75rem;
-		align-items: center;
-		width: 100%;
-		padding: 0.6rem 0.75rem;
-		border: 1px solid var(--border, #ddd);
-		border-radius: 0.5rem;
-		background: transparent;
-		text-align: left;
-		cursor: pointer;
-	}
-	.entry .title {
-		flex: 1;
-		font-weight: 600;
-	}
-	.detail {
-		border: 1px solid var(--border, #ddd);
-		border-radius: 0.5rem;
-		padding: 1rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-	.detail dt {
-		font-weight: 600;
-		margin-top: 0.5rem;
-	}
-	.detail dd {
-		margin: 0.25rem 0 0;
-	}
-	.problem {
-		color: var(--danger, #b3261e);
-	}
+<style lang="scss">
+	@use '../styles/shima.scss';
 </style>

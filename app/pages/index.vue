@@ -1,325 +1,133 @@
 <script setup lang="ts">
-	import type { EvidenceRef } from '#shared/p0/types';
-	import FollowUpPanel from '../components/workbench/FollowUpPanel.vue';
-	import OpportunitiesPanel from '../components/workbench/OpportunitiesPanel.vue';
-	import RunControls from '../components/workbench/RunControls.vue';
-	import SessionRail from '../components/workbench/SessionRail.vue';
-	import TranscriptPane from '../components/workbench/TranscriptPane.vue';
-	import WorkflowReview from '../components/workbench/WorkflowReview.vue';
-	import { evidenceSources } from '../composables/workbenchDescriptors';
-	import { useDraftProtection } from '../composables/useDraftProtection';
-	import { useWorkbench } from '../composables/useWorkbench';
+	import ShimaDemoIntake from '~/components/shima/ShimaDemoIntake.vue';
+	import ShimaMatch from '~/components/shima/ShimaMatch.vue';
+	import ShimaOpportunityMap from '~/components/shima/ShimaOpportunityMap.vue';
+	import { useShimaDemo } from '~/composables/useShimaDemo';
+	import { useShimaSurface } from '~/composables/useShimaSurface';
 
-	const { confirmLeaving, hasUnsavedEdits } = useDraftProtection();
-	const workbench = useWorkbench(hasUnsavedEdits);
+	// The private interview can be mounted here only with a verified server
+	// principal and business/session authorization, never the demo UI mode.
+	definePageMeta({ layout: false });
+	useHead({ title: 'シマエナガ｜仕事の見取り図', htmlAttrs: { lang: 'ja' } });
+	const surface = useShimaSurface();
+	const demo = useShimaDemo();
 	const {
-		session,
-		clients,
-		sessions,
-		clientId,
 		busy,
 		problem,
 		notice,
-		conflict,
-		writeDisabled,
-	} = workbench;
-
-	const sections = {
-		discovery: 'Discovery',
-		questions: 'Follow-up questions',
-		plans: 'Opportunities & plans',
-	};
-	const section = ref<keyof typeof sections>('discovery');
-	const selectedEvidence = ref<EvidenceRef | null>(null);
-	const jumpCount = ref(0);
-	const sources = computed(() =>
-		session.value ? evidenceSources(session.value) : [],
-	);
-	const answers = computed(() =>
-		sources.value.filter((source) =>
-			session.value?.questions.some(
-				(question) => question.answer?.id === source.id,
-			),
-		),
-	);
-	const activeClient = computed(() =>
-		clients.value.find((client) => client.id === session.value?.clientId),
-	);
-	const questionCount = computed(
-		() =>
-			session.value?.questions.filter(
-				(question) => question.status === 'open',
-			).length ?? 0,
-	);
-	const stage = computed(() => {
-		if (!session.value?.transcript) {
-			return 'Awaiting transcript';
-		}
-		if (!session.value.discovery) {
-			return 'Ready for discovery';
-		}
-		return session.value.discovery.stale ?
-				'Discovery needs refresh'
-			:	'Discovery current';
-	});
-
-	useHead({ title: 'Sapporo Workflow Workbench', htmlAttrs: { lang: 'en' } });
-	onMounted(workbench.initialize);
-	watch(
-		() => session.value?.id,
-		() => {
-			section.value = 'discovery';
-			selectedEvidence.value = null;
-		},
-	);
-
-	function jumpToSource(reference: EvidenceRef) {
-		selectedEvidence.value = reference;
-		jumpCount.value += 1;
-	}
-
-	async function createInterview(title: string) {
-		return confirmLeaving() && workbench.createSession(title);
-	}
+		needsRefresh,
+		disabled,
+		session,
+		map,
+		answer,
+		activePackage,
+		preview,
+		quest,
+	} = demo;
 </script>
 
 <template>
-	<div class="workbench">
-		<SessionRail
-			:clients="clients"
-			:sessions="sessions"
-			:client-id="clientId"
-			:session="session"
-			:busy="!!busy"
-			:create-client="workbench.createClient"
-			:create-session="createInterview"
-			@browse="workbench.browse"
-			@open="
-				(owner, id) =>
-					confirmLeaving() && workbench.openSession(owner, id)
-			"
-			@demo="
-				(session?.origin === 'hotel-demo' || confirmLeaving())
-				&& workbench.openDemo()
-			"
-		/>
-		<div class="workspace">
-			<header
-				v-if="session"
-				class="interview-heading"
+	<main class="shima-shell">
+		<header class="shima-hero">
+			<p class="shima-kicker">事業者向けセルフサービス</p>
+			<h1>シマエナガ</h1>
+			<p class="shima-tagline">
+				日々の手作業を見直し、自分たちで変えられるところから。
+			</p>
+			<p>聞く → 見える化 → つなぐ</p>
+		</header>
+		<section
+			v-if="surface !== 'fixture-local'"
+			class="shima-panel"
+			aria-labelledby="shima-access"
+			data-testid="shima-owner-closed"
+		>
+			<h2 id="shima-access">事業者の方へ</h2>
+			<p>
+				面談の開始・再開には、ご自身の事業者アカウントの認証が必要です。この画面では面談を開始できません。
+			</p>
+			<NuxtLink
+				v-if="surface === 'public-demo'"
+				class="button"
+				to="/quests"
+				>架空のデモ掲示板を見る</NuxtLink
 			>
-				<div class="interview-title">
-					<p class="eyebrow">
-						Client engagement
-						<template v-if="activeClient"
-							>/ {{ activeClient.name }}</template
-						>
-					</p>
-					<h1>{{ session.title }}</h1>
-					<div class="actions">
-						<span
-							class="pill"
-							:class="{ attention: session.discovery?.stale }"
-							>{{ stage }}</span
-						>
-						<span
-							v-if="
-								session.origin === 'hotel-demo'
-								|| session.discovery?.mode === 'fixture'
-							"
-							class="fixture-tag"
-							>Fixture demo — not live AI</span
-						>
-						<span
-							v-if="session.discovery?.mode === 'live'"
-							class="pill"
-							>Live provider output</span
-						>
-						<span class="quiet fine mono"
-							>Rev {{ session.rev }}</span
-						>
-					</div>
-				</div>
-				<RunControls
-					:key="session.id"
-					operation="discovery"
-					:fixture-available="session.origin === 'hotel-demo'"
-					:repeat="!!session.discovery"
-					:disabled="
-						writeDisabled || !session.transcript?.segments.length
-					"
-					@run="workbench.run"
-				/>
-			</header>
-
-			<div
-				v-if="problem || conflict"
-				class="request-error"
-			>
-				<p role="alert">
-					{{
-						problem
-						|| 'Load the latest revision before applying more changes.'
-					}}
-				</p>
-				<button
-					v-if="conflict || !session"
-					class="button"
-					type="button"
-					:disabled="!!busy"
-					@click="workbench.reload"
+		</section>
+		<template v-else>
+			<div class="shima-lane">
+				<strong
+					class="shima-tag"
+					data-testid="shima-fictional-label"
+					>ロールプレイ（架空・マイクなし）</strong
 				>
-					{{
-						conflict ?
-							'Load latest revision'
-						:	'Retry loading workbench'
-					}}
-				</button>
+				<nav
+					class="shima-row"
+					aria-label="デモとレビュー"
+				>
+					<NuxtLink to="/quests">デモ掲示板</NuxtLink>
+					<NuxtLink to="/workbench">レビュー用ワークベンチ</NuxtLink>
+				</nav>
 			</div>
 			<p
-				class="activity"
+				class="shima-status"
 				role="status"
 				aria-atomic="true"
 			>
 				{{ busy || notice }}
 			</p>
-
 			<div
-				v-if="session"
-				:key="session.id"
+				v-if="problem"
+				class="shima-warning"
 			>
-				<nav
-					class="section-nav"
-					aria-label="Interview views"
+				<p role="alert">{{ problem }}</p>
+				<button
+					v-if="needsRefresh"
+					class="button"
+					type="button"
+					data-testid="shima-owner-refresh"
+					:disabled="!!busy"
+					@click="session ? demo.refresh() : demo.prepareDemo()"
 				>
-					<button
-						v-for="(label, key) in sections"
-						:key="key"
-						type="button"
-						:aria-pressed="key === section"
-						:aria-controls="`view-${key}`"
-						@click="section = key"
-					>
-						{{ label }}
-						<span
-							v-if="key === 'questions' && questionCount"
-							class="pill"
-							>{{ questionCount }}</span
-						>
-					</button>
-				</nav>
-				<div
-					class="work-grid"
-					:inert="Boolean(busy)"
-					:aria-busy="Boolean(busy)"
-				>
-					<TranscriptPane
-						:segments="session.transcript?.segments ?? []"
-						:has-transcript="!!session.transcript"
-						:answers="answers"
-						:selected="selectedEvidence"
-						:jump-count="jumpCount"
-						:disabled="writeDisabled"
-						:session-key="`${session.clientId}/${session.id}`"
-						:revision="session.rev"
-						:save="workbench.saveTranscript"
-						:remove="workbench.deleteTranscript"
-					/>
-					<div
-						v-show="section === 'discovery'"
-						id="view-discovery"
-						class="discovery-grid"
-					>
-						<WorkflowReview
-							:session="session"
-							:sources="sources"
-							:disabled="writeDisabled"
-							:save="workbench.saveFinding"
-							@jump="jumpToSource"
-						/>
-					</div>
-					<div
-						v-show="section === 'questions'"
-						id="view-questions"
-					>
-						<FollowUpPanel
-							:questions="session.questions"
-							:steps="session.workflow.steps"
-							:sources="sources"
-							:disabled="writeDisabled"
-							:analyzed="!!session.discovery"
-							:save="workbench.saveAnswer"
-							@jump="jumpToSource"
-						/>
-					</div>
-					<div
-						v-show="section === 'plans'"
-						id="view-plans"
-					>
-						<OpportunitiesPanel
-							:session="session"
-							:sources="sources"
-							:disabled="writeDisabled"
-							:save-assumptions="workbench.saveAssumptions"
-							:save-plan="workbench.savePlan"
-							:download="workbench.downloadPlan"
-							:run="workbench.run"
-							@jump="jumpToSource"
-						/>
-					</div>
-				</div>
+					最新の状態を読み込む
+				</button>
 			</div>
-
-			<section
-				v-else
-				class="launch"
-				aria-labelledby="start-heading"
-			>
-				<div class="launch-copy">
-					<p class="eyebrow">
-						Consultant workbench / <span lang="ja">札幌</span>
-					</p>
-					<h1 id="start-heading">Choose an interview to begin</h1>
-					<p>
-						Start with a saved client interview, create a new one,
-						or open the fictional Sapporo hotel from the client
-						panel.
-					</p>
-				</div>
-				<ol
-					class="work-stages"
-					aria-label="How the workbench is organized"
-				>
-					<li>
-						<span class="eyebrow">01 / Source</span
-						><strong>Record the interview</strong>
-						<p>
-							Paste the original wording with optional speakers
-							and timestamps.
-						</p>
-					</li>
-					<li>
-						<span class="eyebrow">02 / Discovery</span
-						><strong>Review the current workflow</strong>
-						<p>
-							Trace steps and handoffs to evidence; record answers
-							to unresolved questions.
-						</p>
-					</li>
-					<li>
-						<span class="eyebrow">03 / Planning</span
-						><strong>Compare proposed changes</strong>
-						<p>
-							Rank opportunities, estimate savings and prepare a
-							reviewed implementation plan.
-						</p>
-					</li>
-				</ol>
-			</section>
-		</div>
-	</div>
+			<ShimaDemoIntake
+				:ready="!!session"
+				:answer="answer"
+				:stale="map?.stale ?? false"
+				:disabled="disabled"
+				@open="demo.prepareDemo"
+				@answer="demo.submitAnswer"
+			/>
+			<ShimaOpportunityMap
+				:session="session"
+				:map="map"
+				:answered="!!answer"
+				:disabled="disabled"
+				@record-effort="demo.recordEffort"
+			/>
+			<ShimaMatch
+				:package="activePackage"
+				:preview="preview"
+				:quest="quest"
+				:ready="!!answer && !!map"
+				:stale="map?.stale ?? true"
+				:disabled="disabled"
+				@create="demo.createPackage"
+				@decide="demo.decide"
+				@reshape="demo.reshape"
+				@preview="demo.makePreview"
+				@publish="demo.publish"
+				@refresh="demo.refresh"
+				@complete="demo.complete"
+			/>
+		</template>
+		<footer class="quiet">
+			シマエナガは自治体の公式サービスではありません。
+		</footer>
+	</main>
 </template>
 
-<style scoped lang="scss">
-	@use '../styles/workbench-page.scss';
+<style lang="scss">
+	@use '../styles/shima.scss';
 </style>

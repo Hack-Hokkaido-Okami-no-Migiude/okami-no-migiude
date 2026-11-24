@@ -1,0 +1,176 @@
+.shima-shell {
+	width: min(100% - 2rem, 62rem);
+	margin: 0 auto;
+	padding: clamp(1.25rem, 5vw, 3.5rem) 0 2rem;
+	display: grid;
+	gap: 1rem;
+	font-size: 1rem;
+	line-height: 1.6;
+
+	h1 {
+		font-family: inherit;
+		font-size: clamp(2.4rem, 10vw, 4rem);
+		font-weight: 750;
+		line-height: 1.1;
+		letter-spacing: 0.04em;
+	}
+
+	h2 {
+		font-size: clamp(1.2rem, 4vw, 1.5rem);
+	}
+	h3 {
+		font-size: 1rem;
+	}
+	h3,
+	p,
+	ul,
+	ol {
+		margin-block: 0;
+	}
+	:is(ul, ol) {
+		padding-inline-start: 1.4rem;
+	}
+	li + li {
+		margin-block-start: 0.3rem;
+	}
+	:where(.button) {
+		justify-self: start;
+	}
+	a:not(.button) {
+		text-underline-offset: 0.2em;
+	}
+	blockquote {
+		margin: 0.5rem 0;
+		padding: 0.25rem 0.8rem;
+		border-inline-start: 0.2rem solid #9faa9b;
+	}
+	cite {
+		display: block;
+		font-size: 0.85rem;
+		color: var(--muted);
+	}
+	label:has(input[type='checkbox']) {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+	}
+}
+
+.shima-hero {
+	padding: clamp(1rem, 4vw, 2rem);
+	border: 1px solid var(--line);
+	border-radius: 1.2rem;
+	background: var(--soft);
+}
+
+.shima-kicker {
+	color: var(--pine);
+	font-size: 0.82rem;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+}
+
+.shima-tagline {
+	font-size: clamp(1rem, 3vw, 1.3rem);
+	font-weight: 700;
+}
+.shima-tag {
+	padding: 0.16rem 0.65rem;
+	width: fit-content;
+	border-radius: 0.4rem;
+	background: var(--sand);
+	color: var(--ink);
+	font-size: 0.86rem;
+}
+.shima-lane,
+.shima-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.6rem 1rem;
+	align-items: center;
+}
+.shima-lane {
+	justify-content: space-between;
+}
+.shima-status {
+	min-height: 1.5em;
+	color: var(--muted);
+}
+.shima-warning {
+	padding: 0.6rem 0.8rem;
+	border-inline-start: 0.2rem solid var(--danger);
+	color: var(--danger);
+}
+.shima-warning .button {
+	margin-top: 0.45rem;
+}
+
+.shima-panel,
+.shima-question,
+.shima-preview,
+.shima-checklist,
+.shima-metric,
+.shima-form {
+	display: grid;
+	gap: 0.7rem;
+	min-width: 0;
+	padding: clamp(0.8rem, 3vw, 1.25rem);
+	border: 1px solid var(--line);
+	border-radius: 0.75rem;
+	background: var(--surface);
+}
+.shima-question,
+.shima-checklist {
+	border-inline-start: 0.28rem solid var(--pine);
+}
+.shima-preview {
+	border: 2px solid var(--pine);
+}
+.shima-approvals {
+	display: grid;
+	gap: 0.65rem;
+}
+.shima-approvals legend {
+	margin-bottom: 0.5rem;
+	font-weight: 700;
+}
+.shima-metrics,
+.shima-process {
+	display: grid;
+	gap: 0.75rem;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+}
+.shima-metric {
+	align-content: start;
+	background: var(--soft);
+}
+.shima-metric > strong {
+	font-size: 1.6rem;
+	color: var(--pine);
+}
+.shima-task-fields {
+	margin: 0;
+}
+.shima-task-fields > div {
+	padding: 0.55rem 0;
+	border-bottom: 1px solid var(--line);
+}
+.shima-task-fields dt {
+	font-weight: 700;
+}
+.shima-task-fields dd {
+	margin-inline-start: 0;
+	white-space: pre-wrap;
+}
+.shima-entries {
+	list-style: none;
+	padding: 0 !important;
+}
+.shima-shell .shima-entry {
+	width: 100%;
+	justify-content: space-between;
+	flex-wrap: wrap;
+}
+.shima-shell details > :not(summary) {
+	margin-top: 0.4rem;
+}
