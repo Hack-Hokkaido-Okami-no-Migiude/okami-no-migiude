@@ -13,6 +13,19 @@ import {
 	SessionSchema,
 	SessionSummarySchema,
 } from '../../shared/p0/schemas';
+import { IdempotencyConflictError, StoreLookupError } from './errors';
+import type {
+	ShimaSection,
+	ShimaState,
+	StoredAssignment,
+	StoredQuest,
+	StoredReceipt,
+} from '../shima/storage';
+import {
+	ShimaSectionSchema,
+	ShimaStateSchema,
+	emptyShimaSection,
+} from '../shima/storage';
 import {
 	closeSync,
 	existsSync,
@@ -24,9 +37,9 @@ import {
 	rmSync,
 	writeSync,
 } from 'node:fs';
-import { StoreLookupError } from './errors';
 import { newId } from './ids';
 import path from 'node:path';
+import { purgeShimaState } from '../shima/purge';
 
 export type SessionKey = { clientId: Id; sessionId: Id };
 
@@ -49,6 +62,8 @@ type Snapshot = {
 	version: number;
 	clients: Record<Id, Client>;
 	sessions: Record<string, SessionRecord>;
+	/** Absent in stores written before the Shima tracer existed. */
+	shima?: ShimaState;
 };
 
 function emptySnapshot(): Snapshot {
@@ -134,6 +149,11 @@ function readSnapshot(): Snapshot {
 	if (!isSnapshotShape(parsed)) {
 		throw new StoreUnavailableError(
 			'Persisted store has an unexpected shape.',
+		);
+	}
+	if (parsed.shima !== undefined && !ShimaStateSchema.safeParse(parsed.shima).success) {
+		throw new StoreUnavailableError(
+			'Persisted Shima state failed schema validation; refusing to serve it.',
 		);
 	}
 	return parsed;
@@ -234,8 +254,13 @@ export async function casSession(
 			session: validatedSession({ ...next.session, rev: baseRev + 1 }),
 			keys: next.keys,
 		};
+		// Every session commit revalidates Shima citations against the new
+		// session: purged sources take dependent Shima rows with them in the
+		// same atomic write.
+		const shima = purgeShimaState(snapshot.shima, sessionKey, committed.session);
 		writeSnapshotAtomic({
 			...snapshot,
+			...(shima === undefined ? {} : { shima }),
 			sessions: { ...snapshot.sessions, [sessionKey]: committed },
 		});
 		return committed;
@@ -351,5 +376,275 @@ export async function createSession(
 			},
 		});
 		return session;
+	});
+}
+
+// ---------------------------------------------------------------------------
+// Shima tracer rows: they share the snapshot file but keep their own section,
+// their own revision, and their own commit entry points, so legacy data and
+// legacy commits keep working unchanged.
+// ---------------------------------------------------------------------------
+
+export type ShimaView = {
+	session: Session | null;
+	/** The persisted run keys; empty defaults when the record is unknown. */
+	keys: SessionRecord['keys'];
+	section: ShimaSection;
+	quests: Record<string, StoredQuest>;
+	assignments: Record<string, StoredAssignment>;
+};
+
+export type ShimaBuildResult = {
+	section: ShimaSection;
+	/** false keeps the session revision (idempotent replays). */
+	changed?: boolean;
+	/** The response to store under the idempotency key; null stores nothing. */
+	result: unknown;
+	upsertQuests?: StoredQuest[];
+	upsertAssignments?: StoredAssignment[];
+};
+
+export type ShimaCommit = {
+	committed: boolean;
+	view: ShimaView;
+	/** The stored replay response when `committed` is false. */
+	replayedResponse?: unknown;
+	/** The build's `result` when `committed` is true. */
+	result?: unknown;
+};
+
+export type QuestClaimOutcome =
+	| { kind: 'replayed'; response: unknown }
+	| { kind: 'missing' }
+	| {
+			kind: 'conflict';
+			reason: 'already-claimed' | 'receipt-conflict';
+	  }
+	| { kind: 'conflict'; reason: 'stale-revision'; currentRev: number }
+	| { kind: 'claimed'; quest: StoredQuest };
+
+function shimaViewOf(snapshot: Snapshot, key: SessionKey): ShimaView {
+	const sessionKey = snapshotKey(key);
+	const record = snapshot.sessions[sessionKey];
+	return {
+		session: record ? record.session : null,
+		keys: record ? record.keys : { discovery: null, proposals: {} },
+		section: snapshot.shima?.sessions[sessionKey] ?? emptyShimaSection(),
+		quests: snapshot.shima?.quests ?? {},
+		assignments: snapshot.shima?.assignments ?? {},
+	};
+}
+
+/** The session plus its Shima section; `session` is null when unknown. */
+export async function readShimaView(key: SessionKey): Promise<ShimaView> {
+	return shimaViewOf(readSnapshot(), key);
+}
+
+/**
+ * Read one stored idempotency receipt without touching the write queue. Used
+ * by routes that must recognize a replay before the request body can even be
+ * fully validated (a degenerate replay body carries only the revision).
+ */
+export async function readShimaReceipt(
+	key: SessionKey,
+	route: string,
+	idempotencyKey: string,
+): Promise<StoredReceipt | null> {
+	const snapshot = readSnapshot();
+	const sessionKey = snapshotKey(key);
+	const receiptId = `${route}|${idempotencyKey}`;
+	return snapshot.shima?.sessions[sessionKey]?.receipts[receiptId] ?? null;
+}
+
+/** Every published quest, oldest first — the public board projection. */
+export async function listQuests(): Promise<StoredQuest[]> {
+	return Object.values(readSnapshot().shima?.quests ?? {}).sort((left, right) =>
+		left.publishedAt < right.publishedAt ? -1 : left.publishedAt > right.publishedAt ? 1 : 0,
+	);
+}
+
+export async function readQuest(questId: Id): Promise<StoredQuest | null> {
+	return readSnapshot().shima?.quests[questId] ?? null;
+}
+
+/**
+ * Commit one Shima mutation: the build sees the current view and returns the
+ * next section (plus optional quest/assignment upserts and a receipt body).
+ * The section revision is the caller's compare-and-swap base; the session
+ * revision also advances so legacy routes can never interleave silently. All
+ * of it lands in one atomic snapshot write.
+ */
+export async function commitShima(
+	key: SessionKey,
+	build: (view: ShimaView) => ShimaBuildResult,
+	options: {
+		receipt?: { route: string; key: string; fingerprint: string };
+	} = {},
+): Promise<ShimaCommit> {
+	return enqueue(() => {
+		const snapshot = readSnapshot();
+		const sessionKey = snapshotKey(key);
+		const record = snapshot.sessions[sessionKey];
+		if (!record) {
+			throw new StoreLookupError('Unknown client or session.');
+		}
+		const view = shimaViewOf(snapshot, key);
+		const receipt = options.receipt;
+		const receiptId = receipt ? `${receipt.route}|${receipt.key}` : null;
+		if (receipt && receiptId) {
+			const existing = view.section.receipts[receiptId];
+			if (existing) {
+				if (existing.fingerprint !== receipt.fingerprint) {
+					throw new IdempotencyConflictError(
+						'The idempotency key was already used with different input.',
+					);
+				}
+				return { committed: false, view, replayedResponse: existing.response };
+			}
+		}
+		const built = build(view);
+		const parsedSection = ShimaSectionParse(built.section, receiptId, receipt, built.result);
+		const quests: Record<string, StoredQuest> = { ...(snapshot.shima?.quests ?? {}) };
+		for (const quest of built.upsertQuests ?? []) {
+			quests[quest.id] = quest;
+		}
+		const assignments: Record<string, StoredAssignment> = {
+			...(snapshot.shima?.assignments ?? {}),
+		};
+		for (const assignment of built.upsertAssignments ?? []) {
+			assignments[assignment.id] = assignment;
+		}
+		const state: ShimaState = {
+			version: 1,
+			sessions: { ...(snapshot.shima?.sessions ?? {}), [sessionKey]: parsedSection },
+			quests,
+			assignments,
+		};
+		// The section rev is the CAS for Shima writes; the session rev only
+		// tracks session-level content, so a section write never bumps it.
+		const session = record.session;
+		const nextSnapshot: Snapshot = {
+			...snapshot,
+			shima: state,
+			sessions: {
+				...snapshot.sessions,
+				[sessionKey]: { session, keys: record.keys },
+			},
+		};
+		writeSnapshotAtomic(nextSnapshot);
+		return {
+			committed: true,
+			view: shimaViewOf(nextSnapshot, key),
+			result: built.result,
+		};
+	});
+}
+
+/**
+ * Persist the built section, attaching the receipt when the build produced a
+ * response. Rows were schema-parsed by the caller; the whole section is
+ * validated again here so a route bug fails closed instead of persisting.
+ */
+function ShimaSectionParse(
+	section: ShimaSection,
+	receiptId: string | null,
+	receipt: { route: string; fingerprint: string } | undefined,
+	result: unknown,
+): ShimaSection {
+	const withReceipt =
+		receiptId && receipt && result !== null && result !== undefined
+			? {
+					...section,
+					receipts: {
+						...section.receipts,
+						[receiptId]: {
+							route: receipt.route,
+							fingerprint: receipt.fingerprint,
+							response: result,
+							createdAt: new Date().toISOString(),
+						} satisfies StoredReceipt,
+					},
+				}
+			: section;
+	const parsed = ShimaSectionSchema.safeParse(withReceipt);
+	if (!parsed.success) {
+		throw new StoreUnavailableError(
+			'Attempted to persist a Shima section that failed schema validation.',
+		);
+	}
+	return parsed.data;
+}
+
+/**
+ * Commit one quest claim: single winner by compare-and-swap on the quest
+ * revision, receipt replay stored on the quest, and the engineer recorded
+ * only as a key digest. Claims never touch a session.
+ */
+export async function commitQuestClaim(input: {
+	questId: Id;
+	baseRev: number;
+	engineerKeyDigest: string;
+	receipt: { key: string; fingerprint: string };
+	buildResponse: (quest: StoredQuest) => unknown;
+}): Promise<QuestClaimOutcome> {
+	return enqueue(() => {
+		const snapshot = readSnapshot();
+		const shima = snapshot.shima;
+		const quest = shima?.quests[input.questId];
+		if (!quest) {
+			return { kind: 'missing' as const };
+		}
+		const receiptId = `shima-claim|${input.receipt.key}`;
+		const existing = quest.receipts[receiptId];
+		if (existing) {
+			return existing.fingerprint === input.receipt.fingerprint
+				? { kind: 'replayed' as const, response: existing.response }
+				: { kind: 'conflict' as const, reason: 'receipt-conflict' as const };
+		}
+		const mine =
+			quest.state === 'claimed' && quest.assigneeId === input.engineerKeyDigest;
+		// The claimed state is checked before the revision: a losing competitor
+		// must always see `already_claimed`, and a same-engineer repeat replays
+		// its existing claim, whatever revision it arrived with.
+		if (quest.state === 'claimed' && !mine) {
+			return { kind: 'conflict' as const, reason: 'already-claimed' as const };
+		}
+		if (!mine && quest.rev !== input.baseRev) {
+			return {
+				kind: 'conflict' as const,
+				reason: 'stale-revision' as const,
+				currentRev: quest.rev,
+			};
+		}
+		const now = new Date().toISOString();
+		const nextQuest: StoredQuest = mine
+			? { ...quest }
+			: {
+					...quest,
+					rev: quest.rev + 1,
+					state: 'claimed',
+					assigneeId: input.engineerKeyDigest,
+					claimedAt: now,
+				};
+		const receiptRow: StoredReceipt = {
+			route: 'shima-claim',
+			fingerprint: input.receipt.fingerprint,
+			response: input.buildResponse(nextQuest),
+			createdAt: now,
+		};
+		const claimed: StoredQuest = {
+			...nextQuest,
+			receipts: { ...nextQuest.receipts, [receiptId]: receiptRow },
+		};
+		const state: ShimaState = {
+			version: 1,
+			sessions: shima?.sessions ?? {},
+			quests: { ...(shima?.quests ?? {}), [input.questId]: claimed },
+			assignments: {
+				...(shima?.assignments ?? {}),
+			},
+		};
+		writeSnapshotAtomic({ ...snapshot, shima: state });
+		return { kind: 'claimed' as const, quest: claimed };
 	});
 }

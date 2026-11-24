@@ -16,6 +16,8 @@ export const ERROR_CODES = [
 	'not_found',
 	'stale_revision',
 	'stale_artifact',
+	'idempotency_conflict',
+	'already_claimed',
 	'consent_required',
 	'fixture_unsupported',
 	'provider_failed',

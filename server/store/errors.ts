@@ -34,3 +34,11 @@ export class StaleArtifactError extends Error {
 		this.name = 'StaleArtifactError';
 	}
 }
+
+/** One idempotency key was reused with different input; the caller must retry. */
+export class IdempotencyConflictError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'IdempotencyConflictError';
+	}
+}

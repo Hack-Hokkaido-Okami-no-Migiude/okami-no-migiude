@@ -3,7 +3,15 @@
 // per assignment and never reused after a row is removed.
 import { randomUUID } from 'node:crypto';
 
-export type IdPrefix = 'cli' | 'ses' | 'seg' | 'ans';
+export type IdPrefix =
+	| 'cli'
+	| 'ses'
+	| 'seg'
+	| 'ans'
+	| 'pkg'
+	| 'prv'
+	| 'qst'
+	| 'asg';
 
 export function newId(prefix: IdPrefix): string {
 	return `${prefix}_${randomUUID()}`;

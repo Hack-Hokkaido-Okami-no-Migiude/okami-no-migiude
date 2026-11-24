@@ -76,7 +76,7 @@ export const hotelSeed: { client: Client; session: Session } = {
 // Fixture binding
 // ---------------------------------------------------------------------------
 
-function transcriptFingerprint(transcript: Transcript): string {
+export function transcriptFingerprint(transcript: Transcript): string {
 	return createHash('sha256')
 		.update(
 			JSON.stringify(
@@ -93,19 +93,22 @@ function transcriptFingerprint(transcript: Transcript): string {
 		.digest('hex');
 }
 
-const SEED_FINGERPRINT = transcriptFingerprint(seedTranscript);
+/** The stable fingerprint of the approved seed transcript. */
+export const SEED_FINGERPRINT = transcriptFingerprint(seedTranscript);
 
 /**
  * Which approved variant the session is actually in, decided from the
  * persisted questions. The follow-up state keeps the real persisted answer id
  * and revision so every answer-backed citation binds to that exact record.
+ * Exported for the Shima fixture-eligibility resolver, which reuses the same
+ * binding instead of re-deriving it.
  */
-type FixtureBinding = {
+export type FixtureBinding = {
 	variant: typeof HOTEL_FIXTURE_VARIANT | typeof HOTEL_FOLLOWUP_VARIANT;
 	answer: { id: Id; sourceRev: number } | null;
 };
 
-function resolveBinding(session: Session): FixtureBinding {
+export function resolveBinding(session: Session): FixtureBinding {
 	const answeredQuestions = session.questions.filter(
 		(question) => question.answer !== null,
 	);

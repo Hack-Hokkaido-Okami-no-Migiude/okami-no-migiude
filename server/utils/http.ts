@@ -17,7 +17,7 @@ import {
 	readRawBody,
 	setResponseStatus,
 } from 'h3';
-import { StaleArtifactError, StaleSessionError, StoreInputError, StoreLookupError } from '../store/errors';
+import { IdempotencyConflictError, StaleArtifactError, StaleSessionError, StoreInputError, StoreLookupError } from '../store/errors';
 import { Buffer } from 'node:buffer';
 import type { ErrorCodeSchema } from '../../shared/p0/api';
 import type { PlanSection } from '../../shared/p0/types';
@@ -224,11 +224,12 @@ export function requireBaseRevQuery(event: H3Event): number {
 	return parsed;
 }
 
-/** Parse a JSON body against a schema; failures become `400 invalid_input`. */
-export async function parseJsonBody<T extends z.ZodType>(
-	event: H3Event,
-	schema: T,
-): Promise<z.output<T>> {
+/**
+ * Read the request body ONCE as a JSON value (byte-capped); failures become
+ * `400 invalid_input`. Routes that must recognize a replay before the body can
+ * fully validate read the raw value first, then validate it with `validateBody`.
+ */
+export async function readJsonBody(event: H3Event): Promise<unknown> {
 	const contentLength = Number(
 		event.node.req.headers['content-length'] ?? '0',
 	);
@@ -247,16 +248,21 @@ export async function parseJsonBody<T extends z.ZodType>(
 	) {
 		throw invalidInput('Request body is too large.');
 	}
-	let raw: unknown;
 	if (rawText === null || rawText.trim().length === 0) {
-		raw = {};
-	} else {
-		try {
-			raw = JSON.parse(rawText);
-		} catch {
-			throw invalidInput('Request body must be valid JSON.');
-		}
+		return {};
 	}
+	try {
+		return JSON.parse(rawText);
+	} catch {
+		throw invalidInput('Request body must be valid JSON.');
+	}
+}
+
+/** Validate an already-read body against a schema; failures are `400`. */
+export function validateBody<T extends z.ZodType>(
+	raw: unknown,
+	schema: T,
+): z.output<T> {
 	const parsed = schema.safeParse(raw);
 	if (!parsed.success) {
 		const firstPath = parsed.error.issues[0]?.path.join('.');
@@ -267,6 +273,14 @@ export async function parseJsonBody<T extends z.ZodType>(
 		);
 	}
 	return parsed.data;
+}
+
+/** Parse a JSON body against a schema; failures become `400 invalid_input`. */
+export async function parseJsonBody<T extends z.ZodType>(
+	event: H3Event,
+	schema: T,
+): Promise<z.output<T>> {
+	return validateBody(await readJsonBody(event), schema);
 }
 
 /** Read a required routing parameter, mapping an invalid id to `404 not_found`. */
@@ -292,10 +306,9 @@ export async function runRoute<T extends P0RouteResult>(
 		return await handler();
 	} catch (error) {
 		const mapped = mapToHttpError(error);
-		if (mapped.status >= 500) {
-			// Fixed phrase only: raw errors must never leak payloads or secrets.
-			console.error(`[p0] ${mapped.code}: ${mapped.message}`);
-		}
+		// Fixed phrases only: raw errors (payloads, secrets, provider output)
+		// must never reach logs or responses. Debugging goes through sanitized
+		// Zod issues in tests, not raw exception logging.
 		setResponseStatus(event, mapped.status);
 		const body: {
 			error: { code: ErrorCode; message: string; currentRev?: number };
@@ -312,6 +325,13 @@ export async function runRoute<T extends P0RouteResult>(
 function mapToHttpError(error: unknown): P0HttpError {
 	if (error instanceof P0HttpError) {
 		return error;
+	}
+	if (error instanceof IdempotencyConflictError) {
+		return new P0HttpError(
+			409,
+			'idempotency_conflict',
+			error.message,
+		);
 	}
 	if (error instanceof StoreInputError) {
 		return new P0HttpError(400, 'invalid_input', error.message);

@@ -24,6 +24,12 @@ export default defineNuxtConfig({
 		},
 		families: [
 			{
+				name: 'IBM Plex Serif',
+				provider: 'google',
+				weights: ['100 700'],
+				display: 'swap',
+			},
+			{
 				name: 'Material Symbols Outlined',
 				provider: 'googleicons',
 				fallbacks: [],
