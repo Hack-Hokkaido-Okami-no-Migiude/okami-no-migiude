@@ -128,11 +128,12 @@ export async function transcribeRecording(
 }
 
 /**
- * Best-effort provider-side deletion of the stored transcription. Outcomes
- * are honest: `deleted` only after a confirmed 2xx, `unavailable` when there
- * is nothing retained under the id (404) or none was returned, `failed` when
- * the request could not be completed. Never throws, never retries, never
- * leaks response bodies.
+ * Best-effort provider-side deletion of the stored transcription via the
+ * documented `DELETE /v1/speech-to-text/transcripts/{transcription_id}`
+ * endpoint. Outcomes are honest: `deleted` only after a confirmed 2xx,
+ * `unavailable` when there is nothing retained under the id (404) or none
+ * was returned, `failed` when the request could not be completed. Never
+ * throws, never retries, never leaks response bodies.
  */
 export async function deleteProviderTranscript(
 	config: AudioProviderConfig,
@@ -141,7 +142,7 @@ export async function deleteProviderTranscript(
 	try {
 		// Same redirect rejection as the upload: the key must not be relayed.
 		const response = await fetch(
-			`${config.baseUrl}/v1/speech-to-text/${encodeURIComponent(transcriptionId)}`,
+			`${config.baseUrl}/v1/speech-to-text/transcripts/${encodeURIComponent(transcriptionId)}`,
 			{
 				method: 'DELETE',
 				headers: { 'xi-api-key': config.apiKey },

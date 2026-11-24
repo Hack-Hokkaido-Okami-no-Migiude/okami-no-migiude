@@ -1,8 +1,9 @@
 // Local speech-to-text stub used instead of the real ElevenLabs API in tests
 // and manual browser verification. Implements just enough of the documented
-// batch contract (POST /v1/speech-to-text multipart, DELETE by transcription
-// id) to exercise the recorded-upload route end to end. Never contacts the
-// network and never holds credentials.
+// batch contract (POST /v1/speech-to-text multipart, DELETE
+// /v1/speech-to-text/transcripts/{transcription_id}) to exercise the
+// recorded-upload route end to end. Never contacts the network and never
+// holds credentials.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import http from 'node:http';
@@ -242,7 +243,12 @@ export async function startAudioStub(port = 0): Promise<AudioStub> {
 				response.end(planned.body);
 				return;
 			}
-			const deletion = /^\/v1\/speech-to-text\/([^/]+)$/.exec(url.split('?')[0]);
+			// Only the official deletion endpoint is served. Any other DELETE path
+			// (for example the outdated /v1/speech-to-text/{id} shape) is an
+			// unknown route and falls through to the generic 404 below, so a
+			// client that calls the wrong URL can never observe a confirmed
+			// deletion here.
+			const deletion = /^\/v1\/speech-to-text\/transcripts\/([^/]+)$/.exec(url.split('?')[0]);
 			if (request.method === 'DELETE' && deletion) {
 				const id = decodeURIComponent(deletion[1] ?? '');
 				// Recorded before the redirect branch so a redirecting request is
