@@ -5,6 +5,8 @@ import type { Plan, Proposal, Session } from '../../shared/p0/types';
 import type { PublicTask, TaskDraft } from '../../shared/shima/schemas';
 import type { SessionRecord } from '../store/repository';
 import type { StoredPackage } from './storage';
+import { canonicalJson } from '../../shared/shima/hash';
+import { createHash } from 'node:crypto';
 import { isProposalExportBlocked } from '../analysis/staleness';
 
 export type ShimaPackageView = {
@@ -13,6 +15,8 @@ export type ShimaPackageView = {
 	state: StoredPackage['package']['state'];
 	stale: boolean;
 	decision: StoredPackage['package']['decision'];
+	ownerDecision: NonNullable<StoredPackage['package']['ownerDecision']> | null;
+	completed: boolean;
 	previewId: string | null;
 	questId: string | null;
 	basisKey: string;
@@ -72,9 +76,26 @@ export function packageStaleness(
 		return true;
 	}
 	return (
-		pkg.package.basisKey !== (keys.proposals[pkg.package.opportunityId] ?? '')
+		pkg.package.basisKey !== packageBasis(session, keys, pkg.package.opportunityId)
 		|| isProposalExportBlocked(session, proposal)
 	);
+}
+
+/** Run keys exclude the plan output; bind that and the actual evidence too. */
+export function packageBasis(session: Session, keys: SessionRecord['keys'], opportunityId: string): string | null {
+	const proposal = findProposal(session, opportunityId);
+	const opportunity = session.opportunities.find((row) => row.id === opportunityId);
+	const proposalKey = keys.proposals[opportunityId];
+	if (!proposal || !opportunity || !keys.discovery || !proposalKey) {
+		return null;
+	}
+	return createHash('sha256').update(canonicalJson({
+		discovery: keys.discovery,
+		proposal: proposalKey,
+		opportunity,
+		plan: { sections: proposal.plan.sections, status: proposal.plan.status },
+		answers: session.questions.flatMap((question) => question.answer ? [question.answer] : []),
+	})).digest('hex');
 }
 
 /** The stable owner-facing package projection with recomputed staleness. */
@@ -89,6 +110,8 @@ export function packageProjection(
 		state: pkg.package.state,
 		stale: packageStaleness(session, keys, pkg),
 		decision: pkg.package.decision,
+		ownerDecision: pkg.package.ownerDecision ?? null,
+		completed: pkg.package.completion != null,
 		previewId: pkg.package.previewId,
 		questId: pkg.package.questId,
 		basisKey: pkg.package.basisKey,

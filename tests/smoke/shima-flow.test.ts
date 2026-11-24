@@ -179,6 +179,14 @@ async function publishCatalogQuest(
 	packageId: string;
 	task: Record<string, unknown>;
 	publishKey: string;
+	publishBody: {
+		baseRev: number;
+		previewId: string;
+		previewHash: string;
+		confirmedBudgetYen: number;
+		confirmBudget: boolean;
+		approvePreview: boolean;
+	};
 }> {
 	const origin = `http://127.0.0.1:${port}`;
 	const key = crypto.randomUUID();
@@ -272,15 +280,23 @@ async function publishCatalogQuest(
 	assert.equal(preview.task.estimatedHoursSavedPerMonth, 10);
 	assert.equal(Object.keys(preview.task).length, PUBLIC_TASK_FIELDS.length);
 
-	const publishKey = crypto.randomUUID();
-	const published = await request(port, 'POST', `${PACKAGES}/${pkg.id}/publish`, {
+	// Private accept intent precedes publication, exactly as the owner flow
+	// requires: publish is refused without the recorded accept decision.
+	const accepted = await request(port, 'POST', `${PACKAGES}/${pkg.id}/decision`, {
 		baseRev: (previewed.body as { rev: number }).rev,
+		decision: 'accept',
+	}, { key: crypto.randomUUID() });
+	assert.equal(accepted.status, 200, accepted.text);
+	const publishBody = {
+		baseRev: (accepted.body as { rev: number }).rev,
 		previewId: preview.id,
 		previewHash: preview.hash,
 		confirmedBudgetYen: CATALOG_YEN,
 		confirmBudget: true,
 		approvePreview: true,
-	}, { key: publishKey });
+	};
+	const publishKey = crypto.randomUUID();
+	const published = await request(port, 'POST', `${PACKAGES}/${pkg.id}/publish`, publishBody, { key: publishKey });
 	assert.equal(published.status, 200, published.text);
 	const publishedBody = published.body as {
 		quest: { id: string; rev: number; state: string; task: Record<string, unknown> };
@@ -316,6 +332,7 @@ async function publishCatalogQuest(
 		packageId: pkg.id,
 		task: preview.task,
 		publishKey,
+		publishBody,
 	};
 }
 
@@ -334,7 +351,7 @@ after(async () => {
 test('the published quest, owner effort, and receipts survive a process restart', async () => {
 	smoke = await startSmokeServer();
 	dataDir = smoke.dataDir;
-	const { questId, packageId, publishKey } = await publishCatalogQuest(smoke.port);
+	const { questId, packageId, publishKey, publishBody } = await publishCatalogQuest(smoke.port);
 
 	// --- Restart on the same data directory: the claim persists.
 	await smoke.stop();
@@ -358,12 +375,14 @@ test('the published quest, owner effort, and receipts survive a process restart'
 		[[STEP_ID, 150]],
 	);
 
-	// A replay of the publish receipt after restart: same result, no second quest.
+	// A replay of the publish receipt after restart: the fingerprint binds the
+	// exact original body, so the replay resends it and gets the same result,
+	// with no second quest.
 	const replayedPublish = await request(
 		restarted.port,
 		'POST',
 		`${PACKAGES}/${packageId}/publish`,
-		{ baseRev: 1 },
+		publishBody,
 		{ key: publishKey },
 	);
 	assert.equal(replayedPublish.status, 200, replayedPublish.text);
@@ -401,16 +420,17 @@ test('the published quest, owner effort, and receipts survive a process restart'
 	assert.deepEqual(purgedPackages.body, { rev: 1, packages: [] });
 
 	// After the purge the old receipt is gone: the replay must not resurrect
-	// the package or the quest.
+	// the package or the quest. The purged package lookup fails closed first,
+	// so the fixed private not-found is the observable outcome.
 	const replayAfterPurge = await request(
 		afterPurge.port,
 		'POST',
 		`${PACKAGES}/${packageId}/publish`,
-		{ baseRev: 1 },
+		publishBody,
 		{ key: publishKey },
 	);
-	assert.equal(replayAfterPurge.status, 409);
-	assert.equal(errorOf(replayAfterPurge.body).code, 'stale_revision');
+	assert.equal(replayAfterPurge.status, 404);
+	assert.equal(errorOf(replayAfterPurge.body).code, 'not_found');
 	assert.deepEqual(
 		(await request(afterPurge.port, 'GET', '/api/quests')).body,
 		[],

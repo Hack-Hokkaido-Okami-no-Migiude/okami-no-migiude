@@ -7,10 +7,12 @@ import {
 	createReceiptFingerprint,
 	requireIdempotencyKey,
 } from '~~/server/shima/requests';
+import { checkShimaRev, fixtureSession, projectShimaResult, removePackagePreviews } from '~~/server/shima/owner';
 import {
 	draftFromProposal,
 	findProposal,
-	packageProjection,
+	packageBasis,
+	packageStaleness,
 } from '~~/server/shima/packages';
 import {
 	notFound,
@@ -19,7 +21,6 @@ import {
 	runRoute,
 } from '~~/server/utils/http';
 import { StageError } from '~~/shared/p0/stages';
-import { StaleSessionError } from '~~/server/store/errors';
 import { StoredPackageSchema } from '~~/server/shima/storage';
 import { commitShima } from '~~/server/store/repository';
 import { defineEventHandler } from 'h3';
@@ -40,32 +41,20 @@ export default defineEventHandler((event) =>
 			(current) => {
 				// Every gate and derivation runs on the SAME committed snapshot the
 				// CAS compares against; nothing is decided from a pre-read view.
-				const session = current.session;
-				if (!session) {
-					throw notFound('Unknown client or session.');
-				}
+				const session = fixtureSession(current);
 				// Duplicate generation is a no-op over retained state: it never
 				// writes, so it needs no live baseRev and no fresh gates.
 				const existing = Object.values(current.section.packages).find(
 					(candidate) =>
 						candidate.package.opportunityId === body.opportunityId,
 				);
-				if (existing) {
+				if (existing && (existing.package.state === 'published' || !packageStaleness(session, current.keys, existing))) {
 					return {
 						section: current.section,
-						changed: false,
-						result: {
-							rev: current.section.rev,
-							package: packageProjection(session, current.keys, existing),
-						},
+						result: { kind: 'package', packageId: existing.package.id },
 					};
 				}
-				if (current.section.rev !== body.baseRev) {
-					throw new StaleSessionError(
-						'Session changed before the write; reload and retry.',
-						current.section.rev,
-					);
-				}
+				checkShimaRev(current, body.baseRev);
 				const eligibility = resolveFixtureEligibility(
 					session,
 					current.keys,
@@ -76,14 +65,14 @@ export default defineEventHandler((event) =>
 				);
 				if (!opportunity) {
 					throw notFound(
-						`Unknown opportunity '${body.opportunityId}' for this session.`,
+						'The opportunity is not available.',
 					);
 				}
 				const proposal = findProposal(session, body.opportunityId);
 				if (!proposal) {
-					throw notFound(`No proposal for opportunity '${body.opportunityId}'.`);
+					throw notFound('The proposal is not available.');
 				}
-				const basisKey = current.keys.proposals[body.opportunityId];
+				const basisKey = packageBasis(session, current.keys, body.opportunityId);
 				if (!basisKey) {
 					throw new StageError(
 						'fixture_unsupported',
@@ -101,13 +90,21 @@ export default defineEventHandler((event) =>
 						'The catalog task requires the documented follow-up proposal.',
 					);
 				}
-				const pkgId = newId('pkg');
+				const pkgId = existing?.package.id ?? newId('pkg');
+				const editedFields = existing?.editedFields ?? [];
+				const draft = draftFromProposal(opportunity, proposal.plan);
+				if (existing && editedFields.includes('proposedBudgetYen')) {
+					draft.proposedBudgetYen = existing.package.draft.proposedBudgetYen;
+				}
+				if (existing && editedFields.includes('targetDate')) {
+					draft.targetDate = existing.package.draft.targetDate;
+				}
 				const pkg = StoredPackageSchema.parse({
-					editedFields: [],
+					editedFields,
 					package: {
 						id: pkgId,
 						opportunityId: body.opportunityId,
-						draft: draftFromProposal(opportunity, proposal.plan),
+						draft,
 						basisKey,
 						evidence: [
 							{
@@ -127,13 +124,11 @@ export default defineEventHandler((event) =>
 					...current.section,
 					rev: current.section.rev + 1,
 					packages: { ...current.section.packages, [pkgId]: pkg },
+					previews: removePackagePreviews(current, pkgId),
 				};
 				return {
 					section,
-					result: {
-						rev: section.rev,
-						package: packageProjection(session, current.keys, pkg),
-					},
+					result: { kind: 'package', packageId: pkgId },
 				};
 			},
 			{
@@ -144,9 +139,6 @@ export default defineEventHandler((event) =>
 				},
 			},
 		);
-		const response = outcome.committed
-			? (outcome.result as Record<string, unknown>)
-			: (outcome.replayedResponse as Record<string, unknown>);
-		return response;
+		return projectShimaResult(outcome);
 	}),
 );

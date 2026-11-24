@@ -6,18 +6,16 @@ import {
 	patchReceiptFingerprint,
 	requireIdempotencyKey,
 } from '~~/server/shima/requests';
-import { StaleArtifactError, StaleSessionError, StoreLookupError } from '~~/server/store/errors';
-import { commitShima, readShimaView } from '~~/server/store/repository';
+import { checkShimaRev, fixtureSession, projectShimaResult, removePackagePreviews, storedPackage } from '~~/server/shima/owner';
 import {
-	notFound,
 	parseJsonBody,
 	requireParam,
 	runRoute,
 } from '~~/server/utils/http';
+import { StaleArtifactError } from '~~/server/store/errors';
 import { StoredPackageSchema } from '~~/server/shima/storage';
-import { assertFixtureSession } from '~~/server/shima/publication';
+import { commitShima } from '~~/server/store/repository';
 import { defineEventHandler } from 'h3';
-import { packageProjection } from '~~/server/shima/packages';
 
 export default defineEventHandler((event) =>
 	runRoute(event, async () => {
@@ -28,38 +26,16 @@ export default defineEventHandler((event) =>
 		const packageId = requireParam(event, 'packageId');
 		const body = await parseJsonBody(event, ShimaPackagePatchRequestSchema);
 		const idempotencyKey = requireIdempotencyKey(event);
-		const preflight = await readShimaView(key);
-		if (!preflight.session) {
-			throw notFound('Unknown client or session.');
-		}
-
 		const outcome = await commitShima(
 			key,
 			(current) => {
-				// Gates and projections run against the same committed snapshot
-				// the CAS compares against, never the stale pre-read view.
-				const session = current.session;
-				if (!session) {
-					throw notFound('Unknown client or session.');
-				}
-				assertFixtureSession(session);
-				if (current.section.rev !== body.baseRev) {
-					throw new StaleSessionError(
-						'Session changed before the write; reload and retry.',
-						current.section.rev,
-					);
-				}
-				const stored = current.section.packages[packageId];
-				if (!stored) {
-					throw new StoreLookupError(`Unknown package '${packageId}'.`);
-				}
+				fixtureSession(current);
+				checkShimaRev(current, body.baseRev);
+				const stored = storedPackage(current, packageId);
 				if (stored.package.state === 'published') {
 					throw new StaleArtifactError('The package is already published.');
 				}
-				const result = {
-					rev: current.section.rev,
-					package: packageProjection(session, current.keys, stored),
-				};
+				const result = { kind: 'package', packageId } as const;
 				const draft = stored.package.draft;
 				const fields = body.fields;
 				const edited = [...stored.editedFields];
@@ -85,25 +61,23 @@ export default defineEventHandler((event) =>
 					}
 					changed = true;
 				}
-				if (!changed) {
-					return { section: current.section, changed: false, result };
+				if (!changed && stored.package.ownerDecision == null && stored.package.previewId === null) {
+					return { section: current.section, result };
 				}
 				const nextPackage = StoredPackageSchema.parse({
 					...stored,
-					package: { ...stored.package, draft: nextDraft, previewId: null },
+					package: { ...stored.package, draft: nextDraft, previewId: null, ownerDecision: null, decision: null },
 					editedFields: edited,
 				});
 				const section = {
 					...current.section,
 					rev: current.section.rev + 1,
 					packages: { ...current.section.packages, [packageId]: nextPackage },
+					previews: removePackagePreviews(current, packageId),
 				};
 				return {
 					section,
-					result: {
-						rev: section.rev,
-						package: packageProjection(session, current.keys, nextPackage),
-					},
+					result,
 				};
 			},
 			{
@@ -114,9 +88,6 @@ export default defineEventHandler((event) =>
 				},
 			},
 		);
-		const response = outcome.committed
-			? outcome.result
-			: outcome.replayedResponse;
-		return response as Record<string, unknown>;
+		return projectShimaResult(outcome);
 	}),
 );

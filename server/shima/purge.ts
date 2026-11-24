@@ -12,6 +12,7 @@ import {
 } from './storage';
 import { buildSourceIndex, evidenceRefIsValid } from '../store/sources';
 import type { Session } from '../../shared/p0/types';
+import type { TaskDraft } from '../../shared/shima/schemas';
 import { stripInvalidCitations } from '../store/cascade';
 
 /**
@@ -113,12 +114,10 @@ function quantityEvidenceSurvives(
 	);
 }
 
-function containsStaleQuote(draft: unknown, staleQuotes: string[]): boolean {
-	if (staleQuotes.length === 0) {
-		return false;
-	}
-	const serialized = JSON.stringify(draft) ?? '';
-	return staleQuotes.some((quote) => serialized.includes(quote));
+function containsStaleQuote(draft: TaskDraft, staleQuotes: string[]): boolean {
+	return Object.values(draft).flat().some((field) =>
+		typeof field === 'string' && staleQuotes.some((quote) => field.includes(quote)),
+	);
 }
 
 function keepEntries<T>(

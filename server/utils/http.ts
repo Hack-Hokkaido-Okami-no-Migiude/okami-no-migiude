@@ -15,6 +15,7 @@ import {
 	getQuery,
 	getRouterParam,
 	readRawBody,
+	setHeader,
 	setResponseStatus,
 } from 'h3';
 import { IdempotencyConflictError, StaleArtifactError, StaleSessionError, StoreInputError, StoreLookupError } from '../store/errors';
@@ -229,11 +230,11 @@ export function requireBaseRevQuery(event: H3Event): number {
  * `400 invalid_input`. Routes that must recognize a replay before the body can
  * fully validate read the raw value first, then validate it with `validateBody`.
  */
-export async function readJsonBody(event: H3Event): Promise<unknown> {
+export async function readJsonBody(event: H3Event, maxBytes = MAX_BODY_BYTES): Promise<unknown> {
 	const contentLength = Number(
 		event.node.req.headers['content-length'] ?? '0',
 	);
-	if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+	if (Number.isFinite(contentLength) && contentLength > maxBytes) {
 		throw invalidInput('Request body is too large.');
 	}
 	let rawText: string | null;
@@ -244,7 +245,7 @@ export async function readJsonBody(event: H3Event): Promise<unknown> {
 	}
 	if (
 		rawText !== null
-		&& Buffer.byteLength(rawText, 'utf8') > MAX_BODY_BYTES
+		&& Buffer.byteLength(rawText, 'utf8') > maxBytes
 	) {
 		throw invalidInput('Request body is too large.');
 	}
@@ -296,16 +297,35 @@ export function requireParam(event: H3Event, name: string): string {
  * Run a route body with centralized error mapping. Errors are converted into the
  * contract error body; messages are fixed phrases, never raw provider/H3 payloads.
  */
+const QUEST_ERROR_MESSAGES: Partial<Record<ErrorCode, string>> = {
+	invalid_input: 'Invalid quest request.',
+	not_found: 'Quest not found.',
+	stale_revision: 'Quest revision changed.',
+	already_claimed: 'Quest is already claimed.',
+	idempotency_conflict: 'The claim key is already used.',
+	storage_unavailable: 'Quest board unavailable.',
+};
+
 export async function runRoute<T extends P0RouteResult>(
 	event: H3Event,
 	handler: () => Promise<T>,
+	surface?: 'public-quest',
 ): Promise<
 	T | { error: { code: ErrorCode; message: string; currentRev?: number } }
 > {
+	if (surface === 'public-quest') {
+		setHeader(event, 'Cache-Control', 'no-store');
+	}
 	try {
 		return await handler();
 	} catch (error) {
-		const mapped = mapToHttpError(error);
+		let mapped = mapToHttpError(error);
+		if (surface === 'public-quest') {
+			const message = QUEST_ERROR_MESSAGES[mapped.code];
+			mapped = message
+				? new P0HttpError(mapped.status, mapped.code, message, mapped.currentRev)
+				: new P0HttpError(500, 'internal_error', 'Unexpected quest error.');
+		}
 		// Fixed phrases only: raw errors (payloads, secrets, provider output)
 		// must never reach logs or responses. Debugging goes through sanitized
 		// Zod issues in tests, not raw exception logging.

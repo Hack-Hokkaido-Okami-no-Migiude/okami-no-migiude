@@ -5,6 +5,7 @@
 // restart durability lives in tests/smoke. Uses a repo-local ignored data dir.
 import { startServer, stopServer } from './helpers/server';
 import { HOTEL_DEMO_FOLLOWUP_ANSWER } from '../../server/demo/hotel';
+import { SHIMA_CATALOG_VERSIONS } from '../../server/demo/shima-quest';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
@@ -61,10 +62,12 @@ const BANNED_MARKERS = [
 type CallOptions = {
 	key?: string;
 	cookie?: string;
-	origin?: string | null;
+	origin?: string;
+	forwardedProto?: string;
 };
 
 let base = '';
+let previousPublish: { path: string; body: unknown; key: string } | undefined;
 
 async function api(
 	method: string,
@@ -89,6 +92,9 @@ async function api(
 	}
 	if (options.origin !== undefined) {
 		headers.origin = options.origin;
+	}
+	if (options.forwardedProto !== undefined) {
+		headers['x-forwarded-proto'] = options.forwardedProto;
 	}
 	const response = await fetch(`${base}${urlPath}`, {
 		method,
@@ -185,6 +191,12 @@ test.before(async () => {
 
 test.after(async () => {
 	await stopServer();
+});
+
+test('owner completion requires the UUID key and a strict body', async () => {
+	const target = `${PACKAGES}/pkg_unused/complete`;
+	assert.equal((await api('POST', target, { baseRev: 1 })).status, 400);
+	assert.equal((await api('POST', target, { baseRev: 1, completed: true }, { key: key() })).status, 400);
 });
 
 test('the documented tracer flow publishes one fixture task and claims it once', async () => {
@@ -549,19 +561,40 @@ test('the documented tracer flow publishes one fixture task and claims it once',
 	}, { key: key() });
 	assert.equal(restored.status, 200);
 
+	const packagePath = `${PACKAGES}/${pkg.id}`;
+	const declinedBody = { baseRev: 6, decision: 'decline' };
+	const decisionKey = key();
+	const declined = await api('POST', `${packagePath}/decision`, declinedBody, { key: decisionKey });
+	assert.equal(declined.status, 200, `decline failed: ${declined.text}`);
+	assertExactKeys(declined.body, ['rev', 'package']);
+	assert.equal((declined.body as { package: { ownerDecision: string } }).package.ownerDecision, 'decline');
+	assert.equal((declined.body as { rev: number }).rev, 7);
+	assert.deepEqual((await api('POST', `${packagePath}/decision`, declinedBody, { key: decisionKey })).body, declined.body);
+	const decisionConflict = await api('POST', `${packagePath}/decision`, { baseRev: 6, decision: 'accept' }, { key: decisionKey });
+	assert.equal(errorOf(decisionConflict.body).code, 'idempotency_conflict');
+	const retired = await api('POST', `${packagePath}/preview`, { baseRev: 7 }, { key: key() });
+	assert.equal(errorOf(retired.body).code, 'stale_artifact');
+	const notReopened = await api('POST', `${packagePath}/decision`, { baseRev: 7, decision: 'accept' }, { key: key() });
+	assert.equal(errorOf(notReopened.body).code, 'stale_artifact');
+	const reshaped = await api('PATCH', packagePath, { baseRev: 7, fields: { targetDate: CATALOG_DATE } }, { key: key() });
+	assert.equal(reshaped.status, 200);
+	assert.equal((reshaped.body as { rev: number }).rev, 8);
+	assert.equal((reshaped.body as { package: { ownerDecision: unknown } }).package.ownerDecision, null);
+
 	const previewKey = key();
-	const previewed = await api('POST', `${PACKAGES}/${pkg.id}/preview`, { baseRev: 6 }, { key: previewKey });
+	const previewed = await api('POST', `${packagePath}/preview`, { baseRev: 8 }, { key: previewKey });
 	assert.equal(previewed.status, 200, `preview failed: ${previewed.text}`);
 	const previewResult = previewed.body as {
 		rev: number;
 		preview: { id: string; hash: string; task: Record<string, unknown> };
 	};
-	assert.equal(previewResult.rev, 7);
-	const preview = previewResult.preview;
+	assert.equal(previewResult.rev, 9);
+	let preview = previewResult.preview;
 	assert.match(preview.id, /^prv_/);
 	assert.match(preview.hash, /^[0-9a-f]{64}$/);
 	assertExactKeys(preview, ['id', 'hash', 'task']);
 	assertExactKeys(preview.task, PUBLIC_TASK_FIELDS);
+	assert.deepEqual(preview.task, SHIMA_CATALOG_VERSIONS[0]?.tasks[0]?.task);
 	assert.equal(preview.task.confirmedBudgetYen, CATALOG_YEN);
 	assert.equal(preview.task.targetDate, CATALOG_DATE);
 	assert.equal(preview.task.estimatedHoursSavedPerMonth, 10);
@@ -571,27 +604,33 @@ test('the documented tracer flow publishes one fixture task and claims it once',
 		await sha256Hex(canonical({ schema: 'shima-public-task-v1', task: preview.task })),
 		'the served hash must match an independent canonical recomputation',
 	);
-	const replayedPreview = await api('POST', `${PACKAGES}/${pkg.id}/preview`, { baseRev: 7 }, { key: previewKey });
+	const replayedPreview = await api('POST', `${PACKAGES}/${pkg.id}/preview`, { baseRev: 9 }, { key: previewKey });
 	assert.equal(replayedPreview.status, 200);
 	assert.equal((replayedPreview.body as { preview: { id: string } }).preview.id, preview.id);
-	assert.equal((replayedPreview.body as { rev: number }).rev, 7);
+	assert.equal((replayedPreview.body as { rev: number }).rev, 9);
 
 	// --- Publish gates: stale base, wrong hash, wrong or missing yen, missing
 	// explicit confirmations — none may publish.
 	const publish = async (body: Record<string, unknown>, keyOverride?: string) =>
 		api('POST', `${PACKAGES}/${pkg.id}/publish`, body, { key: keyOverride ?? key() });
-	const basePublish = {
-		baseRev: 7,
+	let basePublish = {
+		baseRev: 10,
 		previewId: preview.id,
 		previewHash: preview.hash,
 		confirmedBudgetYen: CATALOG_YEN,
 		confirmBudget: true,
 		approvePreview: true,
 	};
+	const unaccepted = await publish({ ...basePublish, baseRev: 9 });
+	assert.equal(errorOf(unaccepted.body).code, 'stale_artifact');
+	const accepted = await api('POST', `${packagePath}/decision`, { baseRev: 9, decision: 'accept' }, { key: key() });
+	assert.equal(accepted.status, 200);
+	assert.equal((accepted.body as { rev: number }).rev, 10);
+	assert.equal((accepted.body as { package: { ownerDecision: string } }).package.ownerDecision, 'accept');
 	const stalePublish = await publish({ ...basePublish, baseRev: 2 });
 	assert.equal(stalePublish.status, 409);
 	assert.equal(errorOf(stalePublish.body).code, 'stale_revision');
-	assert.equal(errorOf(stalePublish.body).currentRev, 7);
+	assert.equal(errorOf(stalePublish.body).currentRev, 10);
 
 	const wrongHash = await publish({ ...basePublish, previewHash: 'f'.repeat(64) });
 	assert.equal(wrongHash.status, 409);
@@ -618,10 +657,37 @@ test('the documented tracer flow publishes one fixture task and claims it once',
 		assert.equal(errorOf(failed.body).code, 'invalid_input');
 	}
 
+	// Plan output can change without changing the proposal run key or Shima revision.
+	const editedPlan = await api('PATCH', `${S}/opportunities/${OPPORTUNITY_ID}/plan`, {
+		baseRev: 5, sections: { scope: 'A revised fixture-only implementation scope.' },
+	});
+	assert.equal(editedPlan.status, 200, editedPlan.text);
+	const drifted = await publish(basePublish);
+	assert.equal(drifted.status, 409);
+	assert.equal(errorOf(drifted.body).code, 'stale_artifact');
+	const rebased = await api('POST', PACKAGES, { baseRev: 10, opportunityId: OPPORTUNITY_ID }, { key: key() });
+	assert.equal(rebased.status, 200, rebased.text);
+	const rebasedPackage = (rebased.body as typeof createdResult & { package: { ownerDecision: unknown } }).package;
+	assert.equal(rebasedPackage.id, pkg.id);
+	assert.equal(rebasedPackage.ownerDecision, null);
+	assert.equal(rebasedPackage.previewId, null);
+	assert.equal(rebasedPackage.draft.proposedBudgetYen, CATALOG_YEN);
+	const obsoletePreview = await api('POST', `${packagePath}/preview`, { baseRev: 11 }, { key: previewKey });
+	assert.equal(errorOf(obsoletePreview.body).code, 'stale_artifact');
+	assert.equal((await api('POST', `${packagePath}/decision`, { baseRev: 11, decision: 'accept' }, { key: key() })).status, 200);
+	const renewed = await api('POST', `${packagePath}/preview`, { baseRev: 12 }, { key: key() });
+	assert.equal(renewed.status, 200, renewed.text);
+	const nextPreview = renewed.body as typeof previewResult;
+	assert.notEqual(nextPreview.preview.id, preview.id);
+	assert.equal(nextPreview.preview.hash, preview.hash);
+	preview = nextPreview.preview;
+	basePublish = { ...basePublish, baseRev: nextPreview.rev, previewId: preview.id };
+
 	// --- Publish: exact yen confirmation and explicit preview approval.
 	const publishKey = key();
 	const published = await publish(basePublish, publishKey);
 	assert.equal(published.status, 200, `publish failed: ${published.text}`);
+	previousPublish = { path: `${packagePath}/publish`, body: basePublish, key: publishKey };
 	const publishResult = published.body as {
 		rev: number;
 		package: {
@@ -638,7 +704,7 @@ test('the documented tracer flow publishes one fixture task and claims it once',
 		};
 		quest: { id: string; rev: number; state: string; task: Record<string, unknown> };
 	};
-	assert.equal(publishResult.rev, 8);
+	assert.equal(publishResult.rev, basePublish.baseRev + 1);
 	assert.equal(publishResult.package.state, 'published');
 	assert.equal(publishResult.package.decision?.kind, 'approved');
 	assert.equal(publishResult.package.decision?.confirmedBudgetYen, CATALOG_YEN);
@@ -664,6 +730,12 @@ test('the documented tracer flow publishes one fixture task and claims it once',
 	const republish = await publish(basePublish);
 	assert.equal(republish.status, 409);
 	assert.equal(errorOf(republish.body).code, 'stale_artifact');
+	const changedReplay = await publish({ ...basePublish, baseRev: publishResult.rev }, publishKey);
+	assert.equal(errorOf(changedReplay.body).code, 'idempotency_conflict');
+	const malformedReplay = await publish({ baseRev: basePublish.baseRev }, publishKey);
+	assert.equal(malformedReplay.status, 400);
+	const premature = await api('POST', `${packagePath}/complete`, { baseRev: publishResult.rev }, { key: key() });
+	assert.equal(errorOf(premature.body).code, 'stale_artifact');
 
 	// --- Public board: strict projection, no private joins.
 	const board = await api('GET', '/api/quests');
@@ -687,8 +759,12 @@ test('the documented tracer flow publishes one fixture task and claims it once',
 	assert.deepEqual(detailBody.task, preview.task);
 	assertNoPrivateMarkers(board.body, detail.body);
 
-	const unknownQuest = await api('GET', '/api/quests/qst_missing');
+	// The transport gate rejects paths that are not opaque quest ids before
+	// the route runs, so the route-level fixed error is exercised with a
+	// well-formed but unknown quest id.
+	const unknownQuest = await api('GET', `/api/quests/qst_${randomUUID()}`);
 	assert.equal(unknownQuest.status, 404);
+	assert.deepEqual(unknownQuest.body, { error: { code: 'not_found', message: 'Quest not found.' } });
 
 	// --- Claim gates.
 	const noCookie = await api('POST', `/api/quests/${quest.id}/claim`, { baseRev: 1 }, {
@@ -702,23 +778,34 @@ test('the documented tracer flow publishes one fixture task and claims it once',
 		origin: new URL(base).origin,
 	});
 	assert.equal(malformedCookie.status, 400);
+	// Cross-origin and forwarded/scheme claims are rejected by the transport
+	// gate before any route logic runs; the fixed not-found body carries no
+	// caller input.
 	const crossOrigin = await api('POST', `/api/quests/${quest.id}/claim`, { baseRev: 1 }, {
 		key: key(),
 		cookie: engineerCookie,
 		origin: 'https://evil.example',
 	});
-	assert.equal(crossOrigin.status, 400);
+	assert.equal(crossOrigin.status, 404);
+	assert.deepEqual(crossOrigin.body, { error: { code: 'not_found', message: 'Not found.' } });
+	const spoofedScheme = await api('POST', `/api/quests/${quest.id}/claim`, { baseRev: 1 }, {
+		key: key(), cookie: engineerCookie,
+		origin: base.replace('http:', 'https:'), forwardedProto: 'https',
+	});
+	assert.equal(spoofedScheme.status, 404);
+	assert.deepEqual(spoofedScheme.body, { error: { code: 'not_found', message: 'Not found.' } });
 	const noClaimKey = await api('POST', `/api/quests/${quest.id}/claim`, { baseRev: 1 }, {
 		cookie: engineerCookie,
 		origin: new URL(base).origin,
 	});
 	assert.equal(noClaimKey.status, 400);
-	const unknownClaim = await api('POST', '/api/quests/qst_missing/claim', { baseRev: 1 }, {
+	const unknownClaim = await api('POST', `/api/quests/qst_${randomUUID()}/claim`, { baseRev: 1 }, {
 		key: key(),
 		cookie: engineerCookie,
 		origin: new URL(base).origin,
 	});
 	assert.equal(unknownClaim.status, 404);
+	assert.deepEqual(unknownClaim.body, unknownQuest.body);
 	const staleClaim = await api('POST', `/api/quests/${quest.id}/claim`, { baseRev: 2 }, {
 		key: key(),
 		cookie: engineerCookie,
@@ -762,8 +849,8 @@ test('the documented tracer flow publishes one fixture task and claims it once',
 		?.split(';')[0];
 	assert.ok(secondCookie);
 	assert.notEqual(secondCookie, engineerCookie);
-	const competing = await api('POST', `/api/quests/${quest.id}/claim`, { baseRev: 2 }, {
-		key: key(),
+	const competing = await api('POST', `/api/quests/${quest.id}/claim`, { baseRev: 1 }, {
+		key: claimKey,
 		cookie: secondCookie,
 		origin: new URL(base).origin,
 	});
@@ -773,9 +860,21 @@ test('the documented tracer flow publishes one fixture task and claims it once',
 	const claimedDetail = await api('GET', `/api/quests/${quest.id}`);
 	assert.equal((claimedDetail.body as { rev: number; state: string }).rev, 2);
 	assert.equal((claimedDetail.body as { state: string }).state, 'claimed');
+	const afterClaim = await api('GET', PACKAGES);
+	assert.equal((afterClaim.body as { packages: { completed: boolean }[] }).packages[0]?.completed, false);
+	const completeKey = key();
+	const completeBody = { baseRev: publishResult.rev };
+	const completed = await api('POST', `${packagePath}/complete`, completeBody, { key: completeKey });
+	assert.equal(completed.status, 200, completed.text);
+	assertExactKeys(completed.body, ['rev', 'package']);
+	assert.equal((completed.body as { package: { completed: boolean } }).package.completed, true);
+	assert.equal((completed.body as { rev: number }).rev, publishResult.rev + 1);
+	assert.deepEqual((await api('POST', `${packagePath}/complete`, completeBody, { key: completeKey })).body, completed.body);
+	assert.deepEqual((await api('GET', PACKAGES)).body, { rev: publishResult.rev + 1, packages: [(completed.body as { package: unknown }).package] });
+	assert.deepEqual((await api('GET', `/api/quests/${quest.id}`)).body, claimedDetail.body);
 });
 
-test('a concurrent claim race produces exactly one winner', async () => {
+test('a different fixture engineer still loses on retry', async () => {
 	// The quest from the previous test is already claimed; publish a second one
 	// is impossible (one catalog task), so race on a fresh store instead.
 	// The race itself is covered by the smoke suite across a restart; here we
@@ -819,6 +918,10 @@ test('deleting the transcript purges linked Shima state and cannot replay', asyn
 
 	const packages = await api('GET', PACKAGES);
 	assert.deepEqual(packages.body, { rev: 1, packages: [] });
+	assert.ok(previousPublish);
+	const privateReplay = await api('POST', previousPublish.path, previousPublish.body, { key: previousPublish.key });
+	assert.equal(privateReplay.status, 404);
+	assert.equal(errorOf(privateReplay.body).code, 'not_found');
 
 	const board = await api('GET', '/api/quests');
 	assert.deepEqual(board.body, []);

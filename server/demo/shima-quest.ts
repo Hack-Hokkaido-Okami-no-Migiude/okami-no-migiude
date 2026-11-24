@@ -1,8 +1,7 @@
-// The checked-in Shima catalog: exactly one fictional task, bound to the
-// documented hotel fixture. The public prose lives here in source — it is a
-// separately written, anonymized representation, never derived from or copied
-// out of a private transcript at request time.
-import type { PublicTask } from '../../shared/shima/schemas';
+// The active Shima catalog contains one fictional task bound to the documented
+// hotel fixture. Its public copy is authored separately from private evidence.
+import { type PublicTask, PublicTaskSchema } from '../../shared/shima/schemas';
+import { publicTaskHash } from '../../shared/shima/hash';
 
 export type ShimaCatalogEntry = {
 	/** Stable key used by previews and stored quests to cite the catalog. */
@@ -18,10 +17,11 @@ export type ShimaCatalogEntry = {
 
 export type ShimaCatalogVersion = {
 	version: number;
-	tasks: ShimaCatalogEntry[];
+	tasks: readonly ShimaCatalogEntry[];
 };
 
-const HOTEL_ROOM_CHANGE_TASK: PublicTask = {
+// Restricted v1 copy retained verbatim for historical hash verification only.
+const HOTEL_ROOM_CHANGE_TASK_V1: PublicTask = {
 	title: '佐渡島の宿：予約変更を清掃計画へ自動反映する連携',
 	problem:
 		'変更のたびに予約管理システム「YukiReserve」のメールボックスを確認し、清掃スタッフが共有するExcelの清掃予定表へ手作業で反映している。繁忙期は週10件程度の変更が重なり、1件あたり約15分の転記と、未反映のまま清掃が進んでしまう事故が続いている。',
@@ -56,9 +56,9 @@ const HOTEL_ROOM_CHANGE_TASK: PublicTask = {
 	estimatedHoursSavedPerMonth: 10,
 };
 
-const HOTEL_ROOM_CHANGE_POSTING: ShimaCatalogEntry = {
+const HOTEL_ROOM_CHANGE_POSTING_V1: ShimaCatalogEntry = {
 	key: 'hotel-room-change-posting-v1',
-	task: HOTEL_ROOM_CHANGE_TASK,
+	task: HOTEL_ROOM_CHANGE_TASK_V1,
 	binding: {
 		clientId: 'cli_hotel_demo',
 		sessionId: 'ses_hotel_demo',
@@ -67,8 +67,55 @@ const HOTEL_ROOM_CHANGE_POSTING: ShimaCatalogEntry = {
 	},
 };
 
+const SHIMA_ARCHIVED_CATALOG_VERSIONS: readonly ShimaCatalogVersion[] = [
+	{ version: 1, tasks: [HOTEL_ROOM_CHANGE_POSTING_V1] },
+];
+
+const HOTEL_ROOM_CHANGE_TASK_V2: PublicTask = {
+	title: '宿泊施設の客室変更を清掃予定に反映する仕組み',
+	problem:
+		'客室変更が確定すると、受付から清掃担当へ連絡し、清掃予定を手作業で更新している。連絡や転記が漏れると、清掃担当が変更に気づかないことがある。',
+	proposedChange:
+		'確定した客室変更だけを、対象日と客室が分かる形で共有の清掃予定に追記する。内容が不明な変更や反映できなかった変更は担当者の確認に回す。',
+	deliverables: [
+		'確定済みの客室変更を取り込む処理',
+		'共有の清掃予定に変更を追記する処理',
+		'確認が必要な変更の一覧',
+	],
+	acceptanceCriteria: [
+		'確定済みの架空サンプル10件で、対象日と客室が正しく追記される。',
+		'未確定の変更は反映しない。もとの予定を書き換えず、客室を清掃済みにしない。',
+		'対象日や客室が不明な変更と、反映に失敗した変更は確認一覧に出る。',
+	],
+	skills: ['表計算の基本操作', '通知の取り込みと処理の自動化'],
+	integrations: ['確定済みの客室変更通知', '共有の清掃予定表'],
+	benefits: [
+		'繁忙期の連絡・転記をすべて省けた場合、削減できる時間は月最大10時間と試算（週約10件、1件約15分、4週間換算）。実測ではない。',
+		'客室変更の見落としを減らすことを目指す。',
+	],
+	prerequisites: [
+		'客室変更の確定が判別でき、対象日と客室を確認できる入力',
+		'共有の清掃予定表と、変更を追記する権限',
+	],
+	limitations: [
+		'実際の削減時間は季節ごとの件数や、担当者に残る確認・例外対応にかかる時間によって変わる。',
+		'清掃の割り当てや実施は自動化しない。',
+	],
+	confirmedBudgetYen: 80000,
+	targetDate: '2026-12-18',
+	estimatedHoursSavedPerMonth: 10,
+};
+
+/** Only active versions are eligible for preview, publication, or the board. */
 export const SHIMA_CATALOG_VERSIONS: readonly ShimaCatalogVersion[] = [
-	{ version: 1, tasks: [HOTEL_ROOM_CHANGE_POSTING] },
+	{
+		version: 2,
+		tasks: [{
+			key: 'hotel-room-change-posting-v2',
+			task: HOTEL_ROOM_CHANGE_TASK_V2,
+			binding: HOTEL_ROOM_CHANGE_POSTING_V1.binding,
+		}],
+	},
 ];
 
 // The documented owner-reported effort datum of the follow-up variant: the
@@ -77,16 +124,42 @@ export const SHIMA_EFFORT_STEP_ID = 'step_hotel_08';
 export const SHIMA_EFFORT_WEEKLY_OCCURRENCES = 10;
 export const SHIMA_EFFORT_MINUTES_PER_OCCURRENCE = 15;
 
-/**
- * The catalog entry for a version/key pair, or null when either is unknown.
- * Stored previews and quests cite the pair so a catalog change never silently
- * rewrites already-published content.
- */
+/** Retired and unknown version/key pairs are not resolved for active use. */
 export function shimaCatalogEntry(
 	catalogVersion: number,
 	entryKey: string,
 ): ShimaCatalogEntry | null {
-	const catalog = SHIMA_CATALOG_VERSIONS.find(
+	return findCatalogEntry(SHIMA_CATALOG_VERSIONS, catalogVersion, entryKey);
+}
+
+/** Historical lookup only; never use this to serve or claim a public quest. */
+export function shimaArchivedCatalogEntry(
+	catalogVersion: number,
+	entryKey: string,
+): ShimaCatalogEntry | null {
+	return findCatalogEntry(SHIMA_ARCHIVED_CATALOG_VERSIONS, catalogVersion, entryKey);
+}
+
+/** Reject retired versions and edited or relabeled content without private joins. */
+export function matchesActiveShimaCatalogTask(catalogVersion: number, task: unknown): boolean {
+	const catalog = SHIMA_CATALOG_VERSIONS.find((candidate) => candidate.version === catalogVersion);
+	if (!catalog) {
+		return false;
+	}
+	const parsed = PublicTaskSchema.safeParse(task);
+	if (!parsed.success) {
+		return false;
+	}
+	const hash = publicTaskHash(parsed.data);
+	return catalog.tasks.some((entry) => publicTaskHash(entry.task) === hash);
+}
+
+function findCatalogEntry(
+	versions: readonly ShimaCatalogVersion[],
+	catalogVersion: number,
+	entryKey: string,
+): ShimaCatalogEntry | null {
+	const catalog = versions.find(
 		(candidate) => candidate.version === catalogVersion,
 	);
 	return catalog?.tasks.find((task) => task.key === entryKey) ?? null;

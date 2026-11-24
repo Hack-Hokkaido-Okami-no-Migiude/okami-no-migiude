@@ -6,36 +6,30 @@ import {
 	receiptFingerprint,
 	requireIdempotencyKey,
 } from '~~/server/shima/requests';
-import { defineEventHandler, getHeader } from 'h3';
+import { assertFixtureClaimOrigin, engineerCookie, publicQuestId } from '~~/server/shima/board';
 import {
 	httpError,
+	invalidInput,
 	notFound,
-	parseJsonBody,
-	requireParam,
+	readJsonBody,
 	runRoute,
 	staleRevision,
+	validateBody,
 } from '~~/server/utils/http';
-import type { H3Event } from 'h3';
 import { commitQuestClaim } from '~~/server/store/repository';
 import { createHash } from 'node:crypto';
-import { z } from 'zod';
+import { defineEventHandler } from 'h3';
 
 export default defineEventHandler((event) =>
 	runRoute(event, async () => {
-		const questId = requireParam(event, 'questId');
-		const body = await parseJsonBody(event, ShimaClaimRequestSchema);
-		const idempotencyKey = requireIdempotencyKey(event);
-		assertSameOrigin(event);
-		const cookie = getHeader(event, 'cookie') ?? '';
-		const match = /(?:^|;\s*)shima_engineer=([^;]+)/.exec(cookie);
-		const engineerKey = match?.[1] ?? '';
-		if (!z.string().uuid().safeParse(engineerKey).success) {
-			throw httpError(
-				400,
-				'invalid_input',
-				'A demo engineer cookie is required to claim a quest.',
-			);
+		assertFixtureClaimOrigin(event);
+		const engineerKey = engineerCookie(event);
+		if (!engineerKey) {
+			throw invalidInput();
 		}
+		const questId = publicQuestId(event);
+		const idempotencyKey = requireIdempotencyKey(event);
+		const body = validateBody(await readJsonBody(event, 4096), ShimaClaimRequestSchema);
 		const engineerKeyDigest = createHash('sha256')
 			.update(engineerKey, 'utf8')
 			.digest('hex');
@@ -45,17 +39,11 @@ export default defineEventHandler((event) =>
 			baseRev: body.baseRev,
 			engineerKeyDigest,
 			receipt: { key: idempotencyKey, fingerprint: receiptFingerprint(body) },
-			buildResponse: (quest) => ({
-				id: quest.id,
-				rev: quest.rev,
-				state: quest.state,
-			}),
+
 		});
 		switch (outcome.kind) {
-			case 'replayed':
-				return outcome.response as Record<string, unknown>;
 			case 'missing':
-				throw notFound(`Unknown quest '${questId}'.`);
+				throw notFound();
 			case 'conflict':
 				if (outcome.reason === 'stale-revision') {
 					throw staleRevision(
@@ -76,32 +64,7 @@ export default defineEventHandler((event) =>
 					'The claim idempotency key was already used with different input.',
 				);
 			case 'claimed':
-				return {
-					id: outcome.quest.id,
-					rev: outcome.quest.rev,
-					state: outcome.quest.state,
-				};
+				return outcome.result;
 		}
-	}),
+	}, 'public-quest'),
 );
-
-/** Reject claim posts that do not come from the server's own origin. */
-function assertSameOrigin(event: H3Event): void {
-	const host = getHeader(event, 'host');
-	const origin = getHeader(event, 'origin');
-	if (!host || !origin) {
-		throw httpError(
-			400,
-			'invalid_input',
-			'Claim requests must come from the demo origin.',
-		);
-	}
-	const proto = getHeader(event, 'x-forwarded-proto') ?? 'http';
-	if (origin !== `${proto}://${host}`) {
-		throw httpError(
-			400,
-			'invalid_input',
-			'Cross-origin claim requests are not accepted.',
-		);
-	}
-}

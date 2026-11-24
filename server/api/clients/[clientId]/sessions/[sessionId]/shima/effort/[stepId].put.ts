@@ -11,7 +11,6 @@ import {
 	assertFixtureEffortEvidence,
 	assertFixtureEffortInput,
 } from '~~/server/shima/effort';
-import { commitShima, readShimaView } from '~~/server/store/repository';
 import {
 	notFound,
 	parseJsonBody,
@@ -23,9 +22,10 @@ import { StaleSessionError } from '~~/server/store/errors';
 import { StoredEffortSchema } from '~~/server/shima/storage';
 import { assertFixtureSession } from '~~/server/shima/publication';
 import { canonicalJson } from '~~/shared/shima/hash';
+import { commitShima } from '~~/server/store/repository';
 import { defineEventHandler } from 'h3';
+import { projectShimaResult } from '~~/server/shima/owner';
 import { resolveBinding } from '~~/server/demo/hotel';
-import { shimaMapView } from '~~/server/shima/map';
 
 export default defineEventHandler((event) =>
 	runRoute(event, async () => {
@@ -36,10 +36,6 @@ export default defineEventHandler((event) =>
 		const stepId = requireParam(event, 'stepId');
 		const body = await parseJsonBody(event, ShimaEffortPutRequestSchema);
 		const idempotencyKey = requireIdempotencyKey(event);
-		const preflight = await readShimaView(key);
-		if (!preflight.session) {
-			throw notFound('Unknown client or session.');
-		}
 
 		const outcome = await commitShima(
 			key,
@@ -58,10 +54,7 @@ export default defineEventHandler((event) =>
 						'The fixture effort requires the documented follow-up answer.',
 					);
 				}
-				const effortResult = (section: typeof current.section) => ({
-					rev: section.rev,
-					map: shimaMapView(session, section),
-				});
+				const result = { kind: 'effort', stepId } as const;
 				// The receipt check inside commitShima precedes this callback, so
 				// a replayed key with changed input conflicts before the gate.
 				assertFixtureEffortInput(stepId, body.effort);
@@ -82,8 +75,7 @@ export default defineEventHandler((event) =>
 				) {
 					return {
 						section: current.section,
-						changed: false,
-						result: effortResult(current.section),
+						result,
 					};
 				}
 				const section = {
@@ -99,7 +91,7 @@ export default defineEventHandler((event) =>
 						}),
 					},
 				};
-				return { section, result: effortResult(section) };
+				return { section, result };
 			},
 			{
 				receipt: {
@@ -109,9 +101,6 @@ export default defineEventHandler((event) =>
 				},
 			},
 		);
-		if (!outcome.committed) {
-			return outcome.replayedResponse as Record<string, unknown>;
-		}
-		return outcome.result as Record<string, unknown>;
+		return projectShimaResult(outcome);
 	}),
 );

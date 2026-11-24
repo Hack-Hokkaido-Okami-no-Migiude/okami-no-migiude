@@ -92,6 +92,25 @@ export const TaskDraftSchema = z.strictObject({
 		.nullable(),
 });
 
+export const OwnerDecisionSchema = z.enum(['accept', 'decline']);
+export type OwnerDecision = z.infer<typeof OwnerDecisionSchema>;
+
 export type QuestState = z.infer<typeof QuestStateSchema>;
 
 export const QuestStateSchema = z.enum(['available', 'claimed']);
+
+export const PublicQuestIdSchema = z.string().regex(/^qst_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+const questMeta = { id: PublicQuestIdSchema, rev: z.number().int().min(1) };
+
+export const PublicQuestDetailSchema = z.strictObject({ ...questMeta, state: QuestStateSchema, task: PublicTaskSchema });
+export type PublicQuestDetail = z.infer<typeof PublicQuestDetailSchema>;
+
+export const PublicQuestSummarySchema = z.strictObject({
+	...questMeta,
+	state: QuestStateSchema,
+	title: PublicTaskSchema.shape.title,
+	confirmedBudgetYen: PublicTaskSchema.shape.confirmedBudgetYen,
+	targetDate: PublicTaskSchema.shape.targetDate,
+});
+
+export const PublicClaimResultSchema = z.strictObject({ ...questMeta, state: z.literal('claimed') });

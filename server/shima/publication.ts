@@ -4,12 +4,11 @@
 // from persisted records and freshly recomputed run keys — never from canned
 // values for dynamic answers.
 import type { Id, Session } from '../../shared/p0/types';
+import { type PublicQuestDetail, PublicQuestDetailSchema, type PublicTask } from '../../shared/shima/schemas';
 import { SEED_FINGERPRINT, createHotelFixtureProvider, resolveBinding, transcriptFingerprint } from '../demo/hotel';
-import {
-	SHIMA_CATALOG_VERSIONS,
-	type ShimaCatalogEntry,
-} from '../demo/shima-quest';
-import type { PublicTask } from '../../shared/shima/schemas';
+import { SHIMA_CATALOG_VERSIONS, shimaCatalogEntry } from '../demo/shima-quest';
+import type { StoredPackage, StoredPreview, StoredQuest } from './storage';
+import { canonicalJson, publicTaskHash } from '../../shared/shima/hash';
 import type { SessionRecord } from '../store/repository';
 import { StageError } from '../../shared/p0/stages';
 import { runKey } from '../analysis/keys';
@@ -22,6 +21,12 @@ export type FixtureEligibility = {
 	answerId: Id;
 };
 
+// Archived editions are readable on disk but not released on this board.
+const activeCatalog = SHIMA_CATALOG_VERSIONS.reduce<(typeof SHIMA_CATALOG_VERSIONS)[number] | undefined>(
+	(active, version) => !active || version.version > active.version ? version : active,
+	undefined,
+);
+
 function unsupported(message: string): never {
 	throw new StageError('fixture_unsupported', message);
 }
@@ -31,12 +36,13 @@ function unsupported(message: string): never {
  * session with an unmodified seed transcript may touch Shima state.
  */
 export function assertFixtureSession(session: Session): void {
-	const entry = SHIMA_CATALOG_VERSIONS[0]?.tasks[0];
+	const entry = activeCatalog?.tasks[0];
 	if (!entry) {
 		unsupported('The Shima catalog is empty.');
 	}
 	if (
-		session.clientId !== entry.binding.clientId
+		session.origin !== 'hotel-demo'
+		|| session.clientId !== entry.binding.clientId
 		|| session.id !== entry.binding.sessionId
 	) {
 		unsupported('Shima is tracer-limited to the documented hotel fixture.');
@@ -62,9 +68,13 @@ export function resolveFixtureEligibility(
 	keys: SessionRecord['keys'],
 	opportunityId: Id,
 ): FixtureEligibility {
-	const entry = findCatalogEntry(opportunityId);
+	const entry = activeCatalog?.tasks.find((candidate) => candidate.binding.opportunityId === opportunityId);
+	if (!activeCatalog || !entry) {
+		unsupported('The active catalog has no task for this opportunity.');
+	}
 	if (
-		session.clientId !== entry.binding.clientId
+		session.origin !== 'hotel-demo'
+		|| session.clientId !== entry.binding.clientId
 		|| session.id !== entry.binding.sessionId
 	) {
 		unsupported('Shima is tracer-limited to the documented hotel fixture.');
@@ -114,38 +124,52 @@ export function resolveFixtureEligibility(
 		(candidate) => candidate.id === opportunityId,
 	);
 	if (!opportunity) {
-		unsupported(`Unknown opportunity '${opportunityId}' for this session.`);
+		unsupported('This opportunity is not present in the fixture.');
 	}
 	if (opportunity.hoursSavedPerMonth !== entry.task.estimatedHoursSavedPerMonth) {
 		unsupported(
-			`The catalog task states ${entry.task.estimatedHoursSavedPerMonth} hours per month, but the current proposal estimates ${opportunity.hoursSavedPerMonth}.`,
+			'The estimated benefit no longer matches the fixture catalog.',
 		);
 	}
 	return {
-		catalogVersion: findCatalogVersion(opportunityId),
+		catalogVersion: activeCatalog.version,
 		catalogKey: entry.key,
 		task: entry.task,
 		answerId,
 	};
 }
 
-function findCatalogEntry(opportunityId: Id): ShimaCatalogEntry {
-	for (const catalog of SHIMA_CATALOG_VERSIONS) {
-		const entry = catalog.tasks.find(
-			(candidate) => candidate.binding.opportunityId === opportunityId,
-		);
-		if (entry) {
-			return entry;
-		}
-	}
-	unsupported(`The catalog has no task for opportunity '${opportunityId}'.`);
+export function isActiveFixturePreview(
+	row: StoredPreview | undefined,
+	pkg: StoredPackage['package'],
+	eligibility: FixtureEligibility,
+): row is StoredPreview {
+	return !!row
+		&& row.preview.id === pkg.previewId
+		&& row.packageId === pkg.id
+		&& row.basisKey === pkg.basisKey
+		&& row.catalogVersion === eligibility.catalogVersion
+		&& row.catalogKey === eligibility.catalogKey
+		&& taskMatches(row.preview.task, row.preview.hash, eligibility.task);
 }
 
-function findCatalogVersion(opportunityId: Id): number {
-	for (const catalog of SHIMA_CATALOG_VERSIONS) {
-		if (catalog.tasks.some((task) => task.binding.opportunityId === opportunityId)) {
-			return catalog.version;
-		}
+/** Independently validate the board snapshot without reading a private session. */
+export function activeQuestDetail(row: StoredQuest, recordId: string): PublicQuestDetail | null {
+	const entry = row.catalogKey ? shimaCatalogEntry(row.catalogVersion, row.catalogKey) : null;
+	if (!entry || row.id !== recordId
+		|| row.source.clientId !== entry.binding.clientId || row.source.sessionId !== entry.binding.sessionId
+		|| !taskMatches(row.task, row.taskHash, entry.task)) {
+		return null;
 	}
-	unsupported(`The catalog has no task for opportunity '${opportunityId}'.`);
+	if (row.state === 'available'
+		? row.rev !== 1 || row.assigneeId != null || row.claimedAt != null
+		: row.rev !== 2 || !row.assigneeId?.startsWith('asg_') || !row.claimedAt) {
+		return null;
+	}
+	const detail = PublicQuestDetailSchema.safeParse({ id: row.id, rev: row.rev, state: row.state, task: row.task });
+	return detail.success ? detail.data : null;
+}
+
+function taskMatches(task: PublicTask, hash: string | undefined, catalogTask: PublicTask): boolean {
+	return hash === publicTaskHash(task) && canonicalJson(task) === canonicalJson(catalogTask);
 }

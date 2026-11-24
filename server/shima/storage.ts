@@ -2,7 +2,7 @@
 // P0 store, under a separate top-level `shima` section, so legacy records are
 // untouched and one atomic write covers both. Every row schema is strict: a
 // malformed persisted section fails closed instead of being silently repaired.
-import { PublicTaskSchema, QuantitySchema, TaskDraftSchema } from '../../shared/shima/schemas';
+import { OwnerDecisionSchema, PublicTaskSchema, QuantitySchema, TaskDraftSchema } from '../../shared/shima/schemas';
 import { EvidenceRefSchema } from '../../shared/p0/schemas';
 import { z } from 'zod';
 
@@ -31,6 +31,7 @@ export const StoredPreviewSchema = z.object({
 	packageId: z.string().min(1),
 	basisKey: hex64,
 	catalogVersion: z.number().int().min(1),
+	catalogKey: z.string().min(1).optional(),
 	createdAt: timestamp,
 });
 
@@ -39,6 +40,7 @@ export type StoredDecision = z.infer<typeof StoredDecisionSchema>;
 /** The immutable owner approval recorded at publish time. */
 export const StoredDecisionSchema = z.object({
 	kind: z.literal('approved'),
+	at: timestamp.optional(),
 	confirmedBudgetYen: z.number().int().min(0),
 	previewHash: hex64,
 	author: z.object({
@@ -60,19 +62,29 @@ export const StoredPackageSchema = z.object({
 		state: z.enum(['draft', 'published']),
 		stale: z.boolean(),
 		decision: StoredDecisionSchema.nullable(),
+		ownerDecision: OwnerDecisionSchema.nullable().optional(),
+		completion: z.strictObject({ assignmentId: z.string().regex(/^asg_/), at: timestamp }).nullable().optional(),
 		previewId: z.string().regex(/^prv_/).nullable(),
 		questId: z.string().regex(/^qst_/).nullable(),
 	}),
 	editedFields: z.array(z.string()).max(20),
 });
 
+const ResultRefSchema = z.discriminatedUnion('kind', [
+	z.strictObject({ kind: z.literal('effort'), stepId: z.string().min(1) }),
+	z.strictObject({ kind: z.literal('package'), packageId: z.string().startsWith('pkg_') }),
+	z.strictObject({ kind: z.literal('preview'), previewId: z.string().startsWith('prv_') }),
+	z.strictObject({ kind: z.literal('publish'), packageId: z.string().startsWith('pkg_'), questId: z.string().startsWith('qst_') }),
+	z.strictObject({ kind: z.literal('claim'), assignmentId: z.string().startsWith('asg_') }),
+]);
+export type ShimaResultRef = z.infer<typeof ResultRefSchema>;
 export type StoredReceipt = z.infer<typeof StoredReceiptSchema>;
 
-/** A stored response for one idempotency key on one route. */
-export const StoredReceiptSchema = z.object({
+/** Pre-hardening receipts load without their obsolete, unusable response bodies. */
+const StoredReceiptSchema = z.object({
 	route: z.string().min(1),
 	fingerprint: hex64,
-	response: z.unknown(),
+	result: ResultRefSchema.optional(),
 	createdAt: timestamp,
 });
 
@@ -86,6 +98,8 @@ export const StoredQuestSchema = z.object({
 	state: z.enum(['available', 'claimed']),
 	task: PublicTaskSchema,
 	catalogVersion: z.number().int().min(1),
+	catalogKey: z.string().min(1).optional(),
+	taskHash: hex64.optional(),
 	source: z.object({ clientId: z.string().min(1), sessionId: z.string().min(1) }),
 	publishedAt: timestamp,
 	assigneeId: z.string().min(1).nullable().optional(),

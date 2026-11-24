@@ -17,15 +17,19 @@ import {
 	PUBLIC_TASK_SCHEMA_TAG,
 	publicTaskHash,
 } from '../../shared/shima/hash';
+import { SHIMA_CATALOG_VERSIONS, shimaArchivedCatalogEntry } from '../../server/demo/shima-quest';
 import {
 	StoreUnavailableError,
 	casSession,
+	commitQuestClaim,
 	commitShima,
 	createClient,
 	createSession,
 	getOrCreateHotelDemo,
 	listClients,
+	listQuests,
 	readClient,
+	readQuest,
 	readSession,
 	readShimaView,
 } from '../../server/store/repository';
@@ -42,6 +46,7 @@ import assert from 'node:assert/strict';
 import { discover } from '../../server/analysis';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 
 const repoRoot = path.resolve(
@@ -454,4 +459,75 @@ test('quest and assignment records keep public content and private links apart',
 	assert.match(quest.id, /^qst_/);
 	assert.ok(quest.task.title.length > 0);
 	assert.equal(Object.keys(quest.receipts).length, 0);
+});
+
+test('well-formed but unapproved public prose cannot be listed, read, or claimed', async () => {
+	await seededFollowupRecord();
+	const questId = `qst_${randomUUID()}`;
+	const catalog = SHIMA_CATALOG_VERSIONS[0]!;
+	const entry = catalog.tasks[0]!;
+	const task = { ...entry.task, title: 'pkg_mutated_private_text' };
+	await commitShima(DEMO_KEY, (view) => ({
+		section: view.section,
+		upsertQuests: [{ ...questRecord(questId, DEMO_KEY), task,
+			catalogVersion: catalog.version, catalogKey: entry.key, taskHash: publicTaskHash(task) }],
+		result: null,
+	}));
+	assert.deepEqual(await listQuests(), []);
+	assert.equal(await readQuest(questId), null);
+	const outcome = await commitQuestClaim({
+		questId, baseRev: 1, engineerKeyDigest: 'a'.repeat(64),
+		receipt: { key: '127cd2d0-ad92-43da-a353-7c0b45d26685', fingerprint: 'b'.repeat(64) },
+	});
+	assert.deepEqual(outcome, { kind: 'missing' });
+	assert.deepEqual((await readShimaView(DEMO_KEY)).assignments, {});
+});
+
+test('a byte-valid archived fixture is retained privately and never served or claimed', async () => {
+	await seededFollowupRecord();
+	const questId = `qst_${randomUUID()}`;
+	const entry = shimaArchivedCatalogEntry(1, 'hotel-room-change-posting-v1');
+	assert.ok(entry);
+	await commitShima(DEMO_KEY, (view) => ({
+		section: view.section,
+		upsertQuests: [{ ...questRecord(questId, DEMO_KEY), task: entry.task,
+			catalogVersion: 1, catalogKey: entry.key, taskHash: publicTaskHash(entry.task) }],
+		result: null,
+	}));
+	assert.ok((await readShimaView(DEMO_KEY)).quests[questId]);
+	assert.deepEqual(await listQuests(), []);
+	assert.equal(await readQuest(questId), null);
+	assert.deepEqual(await commitQuestClaim({
+		questId, baseRev: 1, engineerKeyDigest: 'a'.repeat(64),
+		receipt: { key: randomUUID(), fingerprint: 'b'.repeat(64) },
+	}), { kind: 'missing' });
+});
+
+test('the active fixture creates exactly one durable assignment with principal-scoped receipt references', async () => {
+	await seededFollowupRecord();
+	const questId = `qst_${randomUUID()}`;
+	const catalog = SHIMA_CATALOG_VERSIONS[0]!;
+	const entry = catalog.tasks[0]!;
+	const quest = {
+		...questRecord(questId, DEMO_KEY), task: entry.task, catalogVersion: catalog.version,
+		catalogKey: entry.key, taskHash: publicTaskHash(entry.task),
+	};
+	await commitShima(DEMO_KEY, (view) => ({ section: view.section, upsertQuests: [quest], result: null }));
+	const claim = { questId, baseRev: 1, receipt: { key: randomUUID(), fingerprint: 'f'.repeat(64) } };
+	const engineers = ['a'.repeat(64), 'b'.repeat(64)];
+	const results = await Promise.all(engineers.map((engineerKeyDigest) => commitQuestClaim({ ...claim, engineerKeyDigest })));
+	const winner = results.findIndex((item) => item.kind === 'claimed');
+	assert.notEqual(winner, -1);
+	assert.deepEqual(results[1 - winner], { kind: 'conflict', reason: 'already-claimed' });
+	assert.deepEqual(await commitQuestClaim({ ...claim, engineerKeyDigest: engineers[winner]! }), results[winner]);
+	const rows = await readShimaView(DEMO_KEY);
+	const assignments = Object.values(rows.assignments);
+	assert.equal(assignments.length, 1);
+	assert.equal(assignments[0]?.engineerKeyDigest, engineers[winner]);
+	assert.equal(assignments[0]?.questId, questId);
+	assert.equal(rows.quests[questId]?.assigneeId, assignments[0]?.id);
+	const receipts = Object.values(rows.quests[questId]?.receipts ?? {});
+	assert.equal(receipts.length, 1);
+	assert.deepEqual(receipts[0]?.result, { kind: 'claim', assignmentId: assignments[0]?.id });
+	assert.equal(Object.hasOwn(receipts[0]!, 'response'), false);
 });

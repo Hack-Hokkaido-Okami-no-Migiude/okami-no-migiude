@@ -1,8 +1,8 @@
 // Request contracts for the Shima tracer routes plus the idempotency plumbing:
 // every mutating Shima route requires a UUID idempotency key whose fingerprint
 // (canonical request JSON) distinguishes a replay from a conflicting reuse.
+import { OwnerDecisionSchema, QuantitySchema } from '../../shared/shima/schemas';
 import type { H3Event } from 'h3';
-import { QuantitySchema } from '../../shared/shima/schemas';
 import { canonicalJson } from '../../shared/shima/hash';
 import { createHash } from 'node:crypto';
 import { getHeader } from 'h3';
@@ -44,6 +44,15 @@ export const ShimaPackagePatchRequestSchema = z.strictObject({
 		}),
 });
 
+export const ShimaDecisionRequestSchema = z.strictObject({
+	baseRev: z.number().int().min(1),
+	decision: OwnerDecisionSchema,
+});
+
+export const ShimaCompleteRequestSchema = z.strictObject({
+	baseRev: z.number().int().min(1),
+});
+
 export const ShimaPreviewRequestSchema = z.strictObject({
 	baseRev: z.number().int().min(1),
 });
@@ -73,11 +82,9 @@ export function requireIdempotencyKey(event: H3Event): string {
 }
 
 /**
- * The canonical fingerprint of one request's DOMAIN input for receipt
- * comparisons. `baseRev` is deliberately excluded: it is CAS bookkeeping that
- * legitimately advances between a write and its replay, so a replay after a
- * revision bump is not a conflicting reuse. Domain fields (what would actually
- * change the outcome) are what distinguish a replay from a conflict.
+ * Fingerprint the route's validated input. For compatibility the existing
+ * create/patch/effort/preview routes omit `baseRev`; decisions, completion,
+ * publication and claims bind the exact original request, including CAS.
  */
 export function receiptFingerprint(body: unknown): string {
 	return createHash('sha256')
@@ -103,6 +110,7 @@ export function previewReceiptFingerprint(): string {
 }
 
 export function publishReceiptFingerprint(body: {
+	baseRev: number;
 	previewId: string;
 	previewHash: string;
 	confirmedBudgetYen: number;
@@ -110,6 +118,7 @@ export function publishReceiptFingerprint(body: {
 	approvePreview: boolean;
 }): string {
 	return receiptFingerprint({
+		baseRev: body.baseRev,
 		previewId: body.previewId,
 		previewHash: body.previewHash,
 		confirmedBudgetYen: body.confirmedBudgetYen,
