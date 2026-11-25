@@ -144,12 +144,18 @@ export function buildSyncQueries(db: Db): Query[] {
 
 	const reports = db
 		.prepare(
-			`SELECT r.id, r.interview_id, r.owner_id, r.locale, r.status, r.content, r.ready_at,
+			// Script reports point at interviews; voice reports (Dify assessment)
+			// point at voice_sessions instead and have no interview_id. Both were
+			// copied above as Neon interviews keyed by their app id.
+			`SELECT r.id, COALESCE(r.interview_id, r.voice_conversation_id) AS interview_ref,
+			        r.owner_id, r.locale, r.status, r.content, r.ready_at,
 			        r.consultation_requested_at,
 			        (SELECT MAX(m.sent_at) FROM mail_outbox m
 			          WHERE m.report_id = r.id AND m.audience = 'owner' AND m.status = 'sent') AS sent_at
-			 FROM reports r JOIN interviews i ON i.id = r.interview_id
-			 WHERE i.status = 'submitted'`,
+			 FROM reports r
+			 LEFT JOIN interviews i ON i.id = r.interview_id
+			 LEFT JOIN voice_sessions v ON v.conversation_id = r.voice_conversation_id
+			 WHERE i.status = 'submitted' OR v.transcript IS NOT NULL`,
 		)
 		.all() as Record<string, string | null>[];
 	for (const r of reports) {
@@ -166,7 +172,7 @@ export function buildSyncQueries(db: Db): Query[] {
 			          sent_at = EXCLUDED.sent_at`,
 			params: [
 				r.id,
-				r.interview_id,
+				r.interview_ref,
 				r.owner_id,
 				r.locale === 'en' ? 'en' : 'ja',
 				r.status,
