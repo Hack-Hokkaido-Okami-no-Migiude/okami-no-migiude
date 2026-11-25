@@ -38,63 +38,63 @@ current one (the Ground-rules paragraph changed).
 3. On the **Start** node add four **User Input** variables. Use these exact
    names — the server sends them as-is:
 
-   | Variable name | Field type | Value |
-   |---|---|---|
-   | `transcript` | Paragraph | Final signed call transcript (`Owner:` / `Shima Enaga:` turns) |
-   | `business` | Paragraph | JSON text: business name, location, type |
-   | `research_cases` | Paragraph | JSON object: `{ "in_call_cases": [...], "deep_research_report": { "answer": "...", "sources": [...] } \| null }` |
-   | `report_language` | Select | Exactly two options, `English` and `Japanese` |
+    | Variable name     | Field type | Value                                                                                                            |
+    | ----------------- | ---------- | ---------------------------------------------------------------------------------------------------------------- |
+    | `transcript`      | Paragraph  | Final signed call transcript (`Owner:` / `Shima Enaga:` turns)                                                   |
+    | `business`        | Paragraph  | JSON text: business name, location, type                                                                         |
+    | `research_cases`  | Paragraph  | JSON object: `{ "in_call_cases": [...], "deep_research_report": { "answer": "...", "sources": [...] } \| null }` |
+    | `report_language` | Select     | Exactly two options, `English` and `Japanese`                                                                    |
 
 4. Add one **LLM** node after Start (the model from step 1). System prompt:
 
-   ```text
-   Write the business consultation report in {{report_language}}. Use these
-   Markdown sections with headings in the chosen language only (Japanese
-   first, English second):
+    ```text
+    Write the business consultation report in {{report_language}}. Use these
+    Markdown sections with headings in the chosen language only (Japanese
+    first, English second):
 
-   # 経営相談レポート / Business consultation report — plus the business name
-   > one line noting this is an AI draft based on the interview and web research
-   ## まとめ / Summary — the owner's situation and the top opportunities
-   ## 改善フローの比較 / Flow comparison — 現在の流れ (current flow) and 改善後の流れ (improved flow) as numbered steps
-   ## ボトルネック / Bottlenecks — one bullet each, from the transcript
-   ## 削減できる時間と前提 / Time savings and assumptions
-   ## 導入の負担 / Implementation workload
-   ## 概算費用（目安）/ Indicative costs
-   ## 既製品と独自開発 / Off-the-shelf or custom
-   ## 次のステップ / Next steps — three numbered actions
-   ## 参考情報 / Sources — the URLs actually used
+    # 経営相談レポート / Business consultation report — plus the business name
+    > one line noting this is an AI draft based on the interview and web research
+    ## まとめ / Summary — the owner's situation and the top opportunities
+    ## 改善フローの比較 / Flow comparison — 現在の流れ (current flow) and 改善後の流れ (improved flow) as numbered steps
+    ## ボトルネック / Bottlenecks — one bullet each, from the transcript
+    ## 削減できる時間と前提 / Time savings and assumptions
+    ## 導入の負担 / Implementation workload
+    ## 概算費用（目安）/ Indicative costs
+    ## 既製品と独自開発 / Off-the-shelf or custom
+    ## 次のステップ / Next steps — three numbered actions
+    ## 参考情報 / Sources — the URLs actually used
 
-   Ground rules: the transcript is the owner's evidence and the only source
-   for what they said. The research evidence is external material:
-   `in_call_cases` are the cases researched during the call, and
-   `deep_research_report` — when present — is a deeper sourced dossier with
-   technical detail; prefer its specifics and cite the URLs it lists inline.
-   When `deep_research_report` is null, note that deeper research was not
-   available this session. Mark suggestions that still need validation with
-   要確認 (to be verified). Never present an estimate as a fact. Mask
-   personal names, phone numbers and addresses from the transcript. Keep the
-   tone concrete and respectful, written for the owner.
-   ```
+    Ground rules: the transcript is the owner's evidence and the only source
+    for what they said. The research evidence is external material:
+    `in_call_cases` are the cases researched during the call, and
+    `deep_research_report` — when present — is a deeper sourced dossier with
+    technical detail; prefer its specifics and cite the URLs it lists inline.
+    When `deep_research_report` is null, note that deeper research was not
+    available this session. Mark suggestions that still need validation with
+    要確認 (to be verified). Never present an estimate as a fact. Mask
+    personal names, phone numbers and addresses from the transcript. Keep the
+    tone concrete and respectful, written for the owner.
+    ```
 
-   User prompt (use the variable picker for the four variables):
+    User prompt (use the variable picker for the four variables):
 
-   ```text
-   Interview transcript:
-   {{transcript}}
+    ```text
+    Interview transcript:
+    {{transcript}}
 
-   Business profile:
-   {{business}}
+    Business profile:
+    {{business}}
 
-   Research evidence (in-call cases plus the deep dossier):
-   {{research_cases}}
-   ```
+    Research evidence (in-call cases plus the deep dossier):
+    {{research_cases}}
+    ```
 
 5. **End / Output node** after the LLM node: one output variable named
    `report`, value = the LLM node's `text`. The server reads only
    `outputs.report`. The canvas reads Start → LLM → End.
 6. **Test run**: transcript `Owner: I spend about two hours a week copying
-   bookings by hand.`, business `{"businessName":"Test Inn","location":"Niseko",
-   "businessType":"family-run inn"}`, research_cases
+bookings by hand.`, business `{"businessName":"Test Inn","location":"Niseko",
+"businessType":"family-run inn"}`, research_cases
    `{"in_call_cases":[],"deep_research_report":null}`, report_language
    `English`. Confirm the run returns a `report` in English that uses the two
    hours as the owner's estimate. Then **Publish**.
