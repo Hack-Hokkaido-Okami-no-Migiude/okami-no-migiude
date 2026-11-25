@@ -677,9 +677,7 @@ test(
 			);
 			expectStatus('signup owner B', signupB, 201);
 
-			console.log(
-				'## step: minting requires an active live interview',
-			);
+			console.log('## step: minting requires an active live interview');
 			const staffStart = await request(
 				server.baseUrl,
 				'POST',
@@ -1231,7 +1229,9 @@ test(
 				]);
 			});
 
-			console.log('## step: an active live interview mints a conversation');
+			console.log(
+				'## step: an active live interview mints a conversation',
+			);
 			const liveStart = await request(
 				server.baseUrl,
 				'POST',

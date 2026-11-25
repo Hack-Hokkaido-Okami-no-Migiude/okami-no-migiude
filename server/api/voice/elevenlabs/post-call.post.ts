@@ -100,8 +100,9 @@ export default defineApi(async (event) => {
 	// still reaches the right interview.
 	const variableInterviewId = readWebhookInterviewId(data);
 	const interview =
-		(variableInterviewId ? findInterviewById(variableInterviewId) : undefined)
-		?? findInterviewByConversation(conversationId);
+		(variableInterviewId ?
+			findInterviewById(variableInterviewId)
+		:	undefined) ?? findInterviewByConversation(conversationId);
 	if (interview) {
 		const outcome = saveLiveInterviewTranscript(
 			interview.id,

@@ -359,10 +359,7 @@ function migrateLegacySchema(db: DatabaseSync): void {
 	// Legacy interviews tables predate the minted-conversation association;
 	// the column is nullable and stays NULL for rows minted before it
 	// existed (their conversations cannot be back-resolved).
-	if (
-		interviewColumns.size > 0
-		&& !interviewColumns.has('conversation_id')
-	) {
+	if (interviewColumns.size > 0 && !interviewColumns.has('conversation_id')) {
 		db.exec('ALTER TABLE interviews ADD COLUMN conversation_id TEXT;');
 	}
 	const voiceColumns = tableColumns(db, 'voice_sessions');
