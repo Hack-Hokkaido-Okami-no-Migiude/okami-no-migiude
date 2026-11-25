@@ -8,6 +8,12 @@ import type { VoiceBusiness } from './providers';
 export type VoiceResearchStatus =
 	'idle' | 'queued' | 'submitting' | 'polling' | 'completed' | 'failed';
 
+export type VoiceAssessmentStatus =
+	'idle' | 'queued' | 'running' | 'completed' | 'failed';
+
+export type VoiceAssessmentResearchStatus =
+	'idle' | 'submitting' | 'polling' | 'completed' | 'failed';
+
 export type VoiceSessionRow = {
 	conversation_id: string;
 	owner_id: string;
@@ -20,6 +26,16 @@ export type VoiceSessionRow = {
 	research_poll_at: number | null;
 	research_cases: string | null;
 	transcript: string | null;
+	assessment_status: VoiceAssessmentStatus;
+	assessment_attempts: number;
+	assessment_after: number | null;
+	assessment_deadline: number | null;
+	assessment_report_id: string | null;
+	assessment_research_status: VoiceAssessmentResearchStatus;
+	assessment_research_task_id: string | null;
+	assessment_research_deadline: number | null;
+	assessment_research_poll_at: number | null;
+	assessment_research_cases: string | null;
 	created_at: string;
 };
 
@@ -164,6 +180,168 @@ export function saveVoiceTranscript(
 			'UPDATE voice_sessions SET transcript = ? WHERE conversation_id = ? AND transcript IS NULL',
 		)
 		.run(transcript, conversationId);
+}
+
+// Assessment lifecycle: the post-call webhook queues once the transcript is
+// stored; the worker runs the Dify report and mails it. Same durable-state
+// pattern as the research lifecycle above.
+
+export type VoiceAssessmentQueueResult =
+	| 'missing'
+	| 'no_transcript'
+	| VoiceAssessmentStatus;
+
+/** Idempotent: only a stored transcript with an idle assessment can queue. */
+export function enqueueVoiceAssessment(
+	conversationId: string,
+): VoiceAssessmentQueueResult {
+	const row = findVoiceSessionByConversation(conversationId);
+	if (!row) {
+		return 'missing';
+	}
+	if (row.transcript === null) {
+		return 'no_transcript';
+	}
+	if (row.assessment_status !== 'idle') {
+		return row.assessment_status;
+	}
+	getDb()
+		.prepare(
+			"UPDATE voice_sessions SET assessment_status = 'queued' WHERE conversation_id = ? AND assessment_status = 'idle'",
+		)
+		.run(conversationId);
+	return 'queued';
+}
+
+/**
+ * Due for assessment work: queued (respecting retry backoff) whose research
+ * has reached a terminal state, or running while real work is pending —
+ * the deep pass awaiting its next poll, research already terminal (resume
+ * at the Dify write), or past the deadline (a crashed in-flight run that
+ * the caller fails instead of trusting).
+ */
+export function findDueVoiceAssessment(
+	now: number,
+): VoiceSessionRow | undefined {
+	return getDb()
+		.prepare(
+			`SELECT * FROM voice_sessions
+			 WHERE transcript IS NOT NULL
+			   AND research_status IN ('completed', 'failed')
+			   AND (
+			     (assessment_status = 'queued'
+			      AND (assessment_after IS NULL OR assessment_after <= ?))
+			     OR (assessment_status = 'running' AND (
+			       assessment_deadline <= ?
+			       OR assessment_research_status IN ('idle', 'completed', 'failed')
+			       OR (assessment_research_status = 'polling'
+			           AND assessment_research_poll_at <= ?)
+			     ))
+			   )
+			 ORDER BY created_at
+			 LIMIT 1`,
+		)
+		.get(now, now, now) as unknown as VoiceSessionRow | undefined;
+}
+
+export function claimVoiceAssessment(
+	conversationId: string,
+	deadline: number,
+): void {
+	getDb()
+		.prepare(
+			"UPDATE voice_sessions SET assessment_status = 'running', assessment_deadline = ? WHERE conversation_id = ?",
+		)
+		.run(deadline, conversationId);
+}
+
+export function retryVoiceAssessment(
+	conversationId: string,
+	attempts: number,
+	after: number,
+): void {
+	getDb()
+		.prepare(
+			"UPDATE voice_sessions SET assessment_status = 'queued', assessment_attempts = ?, assessment_after = ?, assessment_deadline = NULL WHERE conversation_id = ?",
+		)
+		.run(attempts, after, conversationId);
+}
+
+export function failVoiceAssessment(
+	conversationId: string,
+	attempts: number,
+): void {
+	getDb()
+		.prepare(
+			"UPDATE voice_sessions SET assessment_status = 'failed', assessment_attempts = ?, assessment_deadline = NULL WHERE conversation_id = ?",
+		)
+		.run(attempts, conversationId);
+}
+
+export function finishVoiceAssessment(
+	conversationId: string,
+	reportId: string,
+): void {
+	getDb()
+		.prepare(
+			"UPDATE voice_sessions SET assessment_status = 'completed', assessment_deadline = NULL, assessment_report_id = ? WHERE conversation_id = ?",
+		)
+		.run(reportId, conversationId);
+}
+
+// Deep-pass lifecycle: a second Linkup research run (heaviest reasoning
+// depth, transcript-informed query) owned by the assessment job. The result
+// is the deep dossier — a sourced report, not a case list — stored as JSON
+// in assessment_research_cases. Mirrors the in-call research functions.
+
+export function claimAssessmentResearch(conversationId: string): void {
+	getDb()
+		.prepare(
+			"UPDATE voice_sessions SET assessment_research_status = 'submitting' WHERE conversation_id = ?",
+		)
+		.run(conversationId);
+}
+
+export function saveAssessmentTask(
+	conversationId: string,
+	taskId: string,
+	deadline: number,
+	nextPoll: number,
+): void {
+	getDb()
+		.prepare(
+			`UPDATE voice_sessions
+			 SET assessment_research_status = 'polling', assessment_research_task_id = ?,
+			     assessment_research_deadline = ?, assessment_research_poll_at = ?
+			 WHERE conversation_id = ?`,
+		)
+		.run(taskId, deadline, nextPoll, conversationId);
+}
+
+export function deferAssessmentPoll(
+	conversationId: string,
+	nextPoll: number,
+): void {
+	getDb()
+		.prepare(
+			'UPDATE voice_sessions SET assessment_research_poll_at = ? WHERE conversation_id = ?',
+		)
+		.run(nextPoll, conversationId);
+}
+
+export function finishAssessmentResearch(
+	conversationId: string,
+	cases: string | null,
+): void {
+	getDb()
+		.prepare(
+			'UPDATE voice_sessions SET assessment_research_status = ?, assessment_research_cases = ? WHERE conversation_id = ?',
+		)
+		.run(
+			cases === null ? 'failed' : 'completed',
+			cases,
+			conversationId,
+		);
 }
 
 /** Sessions whose research is due: queued, or polling past its poll time. */

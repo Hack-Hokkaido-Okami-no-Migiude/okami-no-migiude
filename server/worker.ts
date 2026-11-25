@@ -18,9 +18,14 @@ import { generateReportContent } from './analyze';
 import { inTransaction } from './utils/db';
 import { sanitizeError } from './utils/errors';
 import { workerPollMs } from './utils/env';
-import { readVoiceConfig, voiceConfigured } from './voice/config';
+import {
+	readVoiceConfig,
+	voiceConfigured,
+	difyConfigured,
+} from './voice/config';
 import { createVoiceProviders } from './voice/providers';
 import { processNextVoiceResearch } from './voice/jobs';
+import { processNextVoiceAssessment } from './voice/assessment';
 import { syncToNeonIfDue } from './neon/sync';
 
 const MAX_ATTEMPTS = 5;
@@ -57,8 +62,9 @@ async function processDueWork(): Promise<void> {
 	for (let guard = 0; guard < 50; guard += 1) {
 		const didReport = processNextReport();
 		const didVoice = await processNextVoice();
+		const didAssessment = await processNextAssessment();
 		const didMail = processQueuedMail();
-		if (!didReport && !didVoice && !didMail) {
+		if (!didReport && !didVoice && !didAssessment && !didMail) {
 			return;
 		}
 	}
@@ -69,6 +75,16 @@ function processNextVoice(): Promise<boolean> {
 		return Promise.resolve(false);
 	}
 	return processNextVoiceResearch(
+		nowMs(),
+		createVoiceProviders(readVoiceConfig()),
+	);
+}
+
+function processNextAssessment(): Promise<boolean> {
+	if (!difyConfigured()) {
+		return Promise.resolve(false);
+	}
+	return processNextVoiceAssessment(
 		nowMs(),
 		createVoiceProviders(readVoiceConfig()),
 	);

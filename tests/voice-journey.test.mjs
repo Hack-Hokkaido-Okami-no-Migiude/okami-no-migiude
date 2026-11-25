@@ -30,6 +30,7 @@ const VOICE_ENV = {
 	ELEVENLABS_WEBHOOK_SECRET: 'whsec_test',
 	RESEARCH_TOOL_SECRET: 'tool_test_secret',
 	LINKUP_API_KEY: 'linkup_test_key',
+	DIFY_API_KEY: 'dify_test_key',
 };
 
 const OWNER_A = {
@@ -72,6 +73,19 @@ const RESEARCH_CASES = [
 		],
 	},
 ];
+
+// The canned report the loopback Dify stub streams back.
+const ASSESSMENT_REPORT = '# 経営相談レポート（デモ）: 湯の花旅館\n\n自動下書き（Dify）';
+
+// The canned result of the post-call deep pass (reasoningDepth XL,
+// outputType sourcedAnswer): a full sourced dossier, not a case list.
+const DEEP_RESEARCH_DOSSIER = {
+	answer:
+		'# 深掘り調査デモ\n\nシフト作成には週3時間かかる。Roster automation apps for small accommodations build the weekly schedule from the booking calendar automatically; typical pricing is a few thousand yen per month, setup takes one afternoon and staff need about one hour of training.',
+	sources: [
+		{ name: 'Deep pass source', url: 'https://example.test/deep-pass' },
+	],
+};
 
 const EXPECTED_CASES = [
 	{
@@ -295,13 +309,18 @@ function signWebhook(
 }
 
 /**
- * Loopback stub for the two provider APIs. The first research call returns
- * a task that completes immediately, every later call a task that stays
+ * Loopback stub for the three provider APIs: ElevenLabs tokens, the Linkup
+ * research API and the Dify workflow run. The first research call returns a
+ * task that completes immediately, every later call a task that stays
  * pending forever — enough to drive the completion, supersede and failure
  * paths deterministically.
  */
 function startProviderStub() {
-	const state = { tokensIssued: 0, researchRequests: [] };
+	const state = {
+		tokensIssued: 0,
+		researchRequests: [],
+		assessmentRequests: [],
+	};
 	const server = http.createServer((req, res) => {
 		const chunks = [];
 		req.on('data', (chunk) => chunks.push(chunk));
@@ -330,11 +349,22 @@ function startProviderStub() {
 				return;
 			}
 			if (url.pathname === '/v1/research' && req.method === 'POST') {
-				state.researchRequests.push(
-					Buffer.concat(chunks).toString('utf8'),
-				);
+				const body = Buffer.concat(chunks).toString('utf8');
+				state.researchRequests.push(body);
+				let parsed = {};
+				try {
+					parsed = JSON.parse(body);
+				} catch {
+					// Malformed body: fall through to the in-call branches.
+				}
+				// The post-call deep pass is recognisable by its reasoning
+				// depth and completes immediately with the deep-pass cases.
+				if (parsed.reasoningDepth === 'XL') {
+					respond(200, { id: 'task_deep' });
+					return;
+				}
 				// Call #2 stays pending forever (drives the supersede path);
-				// every other call completes immediately.
+				// every other in-call call completes immediately.
 				const taskId =
 					state.researchRequests.length === 2 ?
 						'task_wait'
@@ -350,11 +380,37 @@ function startProviderStub() {
 						status: 'completed',
 						output: { cases: RESEARCH_CASES },
 					});
+				} else if (taskId === 'task_deep') {
+					respond(200, {
+						status: 'completed',
+						output: DEEP_RESEARCH_DOSSIER,
+					});
 				} else if (taskId === 'task_wait') {
 					respond(200, { status: 'pending' });
 				} else {
 					respond(500, { detail: 'unknown task' });
 				}
+				return;
+			}
+			if (url.pathname === '/v1/workflows/run' && req.method === 'POST') {
+				state.assessmentRequests.push({
+					authorization: req.headers.authorization ?? '',
+					body: Buffer.concat(chunks).toString('utf8'),
+				});
+				if (state.assessmentRequests.length === 1) {
+					// The first run fails so the journey also proves the retry
+					// path; the second attempt streams the report.
+					res.writeHead(500, { 'content-type': 'application/json' });
+					res.end(JSON.stringify({ code: 'system_error' }));
+					return;
+				}
+				res.writeHead(200, { 'content-type': 'text/event-stream' });
+				res.write(
+					'data: {"event": "workflow_started", "data": {"id": "wfr_1"}}\n\n',
+				);
+				res.end(
+					`data: {"event": "workflow_finished", "data": {"id": "wfr_1", "status": "succeeded", "outputs": {"report": ${JSON.stringify(ASSESSMENT_REPORT)}}}}\n\n`,
+				);
 				return;
 			}
 			respond(404, { detail: 'not found' });
@@ -548,6 +604,7 @@ test(
 				...VOICE_ENV,
 				ELEVENLABS_API_BASE_URL: stub.baseUrl,
 				LINKUP_API_BASE_URL: stub.baseUrl,
+				DIFY_API_BASE_URL: stub.baseUrl,
 			},
 		});
 		try {
@@ -852,6 +909,10 @@ test(
 					role: 'agent',
 					message: 'まず、いま一番大変なことは何ですか。',
 				},
+				{
+					role: 'user',
+					message: '従業員が足りなくて、予約を手で写しています。',
+				},
 			];
 			const postCallBody = (conversationId, agentId) =>
 				Buffer.from(
@@ -928,6 +989,7 @@ test(
 				'Shima Enaga: こんにちは。今日はよろしくお願いします。',
 				'Owner: こんにちは。旅館のことを話します。',
 				'Shima Enaga: まず、いま一番大変なことは何ですか。',
+				'Owner: 従業員が足りなくて、予約を手で写しています。',
 			].join('\n');
 			assert.equal(
 				afterPostCall.json.session.transcript,
@@ -1035,6 +1097,131 @@ test(
 			);
 			expectStatus('post-call of another type', otherType, 200);
 			assert.deepEqual(otherType.json, { received: true });
+
+			console.log('## step: Dify assessment runs and mails the report');
+			// Attempt 1 fails against the stub; the worker backs off (~60s)
+			// and retries, so first prove the scheduled-retry state, then wait
+			// for the successful second attempt.
+			await pollUntil('first assessment attempt scheduled a retry', () => {
+				let row;
+				withDb(dir, (db) => {
+					row = db
+						.prepare(
+							'SELECT assessment_status, assessment_attempts FROM voice_sessions WHERE conversation_id = ?',
+						)
+						.get('conv_stub_3');
+				});
+				return (
+					row.assessment_status === 'queued' &&
+					row.assessment_attempts === 1
+				);
+			});
+			await pollUntil(
+				'assessment completed',
+				async () => {
+					const current = await request(
+						server.baseUrl,
+						'GET',
+						'/api/voice/sessions/current',
+						{ jar },
+					);
+					return (
+						current.json.session?.assessment?.status === 'completed'
+					);
+				},
+				90_000,
+			);
+			const assessed = await request(
+				server.baseUrl,
+				'GET',
+				'/api/voice/sessions/current',
+				{ jar },
+			);
+			expectStatus('current with assessment', assessed, 200);
+			assert.equal(assessed.json.session.assessment.status, 'completed');
+			assert.ok(assessed.json.session.assessment.reportId);
+
+			// Exactly two Dify runs (failed first attempt, then success), with
+			// the transcript, intake and the merged case lists.
+			assert.equal(stub.state.assessmentRequests.length, 2);
+			assert.equal(
+				stub.state.assessmentRequests[0].authorization,
+				`Bearer ${VOICE_ENV.DIFY_API_KEY}`,
+			);
+			const assessmentBody = JSON.parse(
+				stub.state.assessmentRequests[0].body,
+			);
+			assert.equal(assessmentBody.response_mode, 'streaming');
+			assert.equal(assessmentBody.user, 'conv_stub_3');
+			assert.equal(assessmentBody.inputs.report_language, 'Japanese');
+			assert.match(assessmentBody.inputs.transcript, /旅館のことを話します/);
+			assert.match(assessmentBody.inputs.business, /湯の花旅館/);
+			// The research evidence is one JSON object: the in-call cases plus
+			// the deep dossier (answer + sources).
+			const evidence = JSON.parse(assessmentBody.inputs.research_cases);
+			assert.deepEqual(evidence.in_call_cases, EXPECTED_CASES);
+			assert.match(
+				evidence.deep_research_report.answer,
+				/Roster automation apps/,
+			);
+			assert.deepEqual(evidence.deep_research_report.sources, [
+				{ name: 'Deep pass source', url: 'https://example.test/deep-pass' },
+			]);
+
+			// The deep pass ran at the heaviest depth as a sourced dossier:
+			// transcript-informed query, no case-list suffix, no schema.
+			// Requests 1–3 are the in-call passes (sessions 1–3).
+			assert.equal(stub.state.researchRequests.length, 4);
+			const deepRequest = JSON.parse(stub.state.researchRequests[3]);
+			assert.equal(deepRequest.reasoningDepth, 'XL');
+			assert.equal(deepRequest.outputType, 'sourcedAnswer');
+			assert.equal(deepRequest.structuredOutputSchema, undefined);
+			assert.doesNotMatch(deepRequest.q, /up to five concise cases/);
+			assert.match(deepRequest.q, /人材の確保と定着/);
+			assert.match(deepRequest.q, /ニセコ町/);
+			assert.doesNotMatch(deepRequest.q, /\[(LOCATION|BUSINESS_TYPE|FOCUS)\]/);
+
+			withDb(dir, (db) => {
+				const session = db
+					.prepare(
+						'SELECT assessment_status, assessment_attempts, assessment_report_id FROM voice_sessions WHERE conversation_id = ?',
+					)
+					.get('conv_stub_3');
+				assert.equal(session.assessment_status, 'completed');
+				// attempts counts failed runs (it drives the backoff): one
+				// failed first attempt, then the successful retry.
+				assert.equal(session.assessment_attempts, 1);
+				const report = db
+					.prepare('SELECT * FROM reports WHERE voice_conversation_id = ?')
+					.get('conv_stub_3');
+				assert.ok(report);
+				assert.equal(report.interview_id, null);
+				assert.equal(report.status, 'ready');
+				assert.match(report.content, /経営相談レポート/);
+				assert.equal(session.assessment_report_id, report.id);
+				assert.equal(
+					report.id,
+					assessed.json.session.assessment.reportId,
+				);
+				const mails = db
+					.prepare(
+						'SELECT audience, recipient, status FROM mail_outbox WHERE report_id = ? ORDER BY audience',
+					)
+					.all(report.id)
+					.map((row) => ({ ...row }));
+				assert.deepEqual(mails, [
+					{
+						audience: 'owner',
+						recipient: OWNER_A.email,
+						status: 'sent',
+					},
+					{
+						audience: 'staff',
+						recipient: 'staff@example.test',
+						status: 'sent',
+					},
+				]);
+			});
 		} finally {
 			await server.close();
 			stub.server.close();

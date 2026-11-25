@@ -14,6 +14,9 @@ export type VoiceBusiness = {
 export type VoiceResearchStatus =
 	'idle' | 'queued' | 'submitting' | 'polling' | 'completed' | 'failed';
 
+export type VoiceAssessmentStatus =
+	'idle' | 'queued' | 'running' | 'completed' | 'failed';
+
 export type VoiceResearchCase = {
 	title: string;
 	company: string;
@@ -44,6 +47,11 @@ export type VoiceSessionStatus = {
 	};
 	transcriptRecorded: boolean;
 	transcript: string | null;
+	assessment: {
+		status: VoiceAssessmentStatus;
+		/** The reports row created when the Dify assessment succeeded. */
+		reportId: string | null;
+	};
 };
 
 export type VoiceCurrentResponse = { session: VoiceSessionStatus | null };

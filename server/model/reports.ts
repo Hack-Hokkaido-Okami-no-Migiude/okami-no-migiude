@@ -77,7 +77,9 @@ export function insertReport(
 	db: import('node:sqlite').DatabaseSync,
 	input: {
 		id: string;
-		interviewId: string;
+		/** Null for voice-sourced reports; they carry voiceConversationId. */
+		interviewId: string | null;
+		voiceConversationId?: string | null;
 		ownerId: string;
 		businessName: string;
 		locale: string;
@@ -86,12 +88,13 @@ export function insertReport(
 ): void {
 	db.prepare(
 		`INSERT INTO reports
-			(id, interview_id, owner_id, business_name, locale, status, content, failure_reason,
+			(id, interview_id, voice_conversation_id, owner_id, business_name, locale, status, content, failure_reason,
 			 consultation_requested_at, created_at, ready_at, generate_attempts, generate_after)
-		 VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, ?, NULL, 0, NULL)`,
+		 VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, ?, NULL, 0, NULL)`,
 	).run(
 		input.id,
 		input.interviewId,
+		input.voiceConversationId ?? null,
 		input.ownerId,
 		input.businessName,
 		input.locale,

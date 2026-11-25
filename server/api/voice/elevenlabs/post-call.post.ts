@@ -6,10 +6,11 @@ import { getHeader } from 'h3';
 import { defineApi, sendJson } from '../../../utils/api';
 import { apiError } from '../../../utils/errors';
 import { readJsonObject } from '../../../utils/validate';
-import { readVoiceConfig, voiceConfigured } from '../../../voice/config';
+import { readVoiceConfig, voiceConfigured, difyConfigured } from '../../../voice/config';
 import {
 	findVoiceSessionByConversation,
 	saveVoiceTranscript,
+	enqueueVoiceAssessment,
 } from '../../../voice/model';
 import { object } from '../../../voice/providers';
 import {
@@ -62,6 +63,11 @@ export default defineApi(async (event) => {
 	}
 	if (findVoiceSessionByConversation(conversationId)) {
 		saveVoiceTranscript(conversationId, toTranscript(data.transcript));
+		// A stored transcript arms the Dify assessment (idempotent). Without
+		// DIFY_API_KEY the assessment stays idle: conversation + research only.
+		if (difyConfigured()) {
+			enqueueVoiceAssessment(conversationId);
+		}
 	}
 	return sendJson(event, 200, { received: true });
 });
