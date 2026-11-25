@@ -1977,6 +1977,27 @@ async function runStaffChecks(
 					'staff UI managed to start an interview — contract violation'
 				:	`no successful /api/interviews/start from the staff context (still on /interview: ${stayedOnInterview}; page: ${interviewText.slice(0, 80)})`,
 			);
+			// The staff notice must replace the owner flow on /interview; it
+			// renders after hydration resolves the session role.
+			const noticePattern =
+				/職員アカウントでは面談を開始できません|Staff accounts cannot start an interview/;
+			let noticeVisible = noticePattern.test(interviewText);
+			if (!noticeVisible) {
+				await waitText(cdp, startProbe, noticePattern, 5000)
+					.then(() => {
+						noticeVisible = true;
+					})
+					.catch(() => {
+						noticeVisible = false;
+					});
+			}
+			record(
+				'staff.interview-notice',
+				noticeVisible ? 'PASS' : 'FAIL',
+				noticeVisible ?
+					'/interview shows the staff notice instead of the owner flow'
+				:	`staff notice not rendered on /interview: ${interviewText.slice(0, 120)}`,
+			);
 		} finally {
 			await startProbe.close();
 		}
