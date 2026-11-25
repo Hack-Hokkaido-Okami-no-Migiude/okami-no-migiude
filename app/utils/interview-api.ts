@@ -1,9 +1,28 @@
-// Interview API client (contract §5 endpoints). Transport is injected so the
-// client stays pure and unit-testable; the Nuxt page supplies a `$fetch`-backed
-// transport. The demo consent payload is fixed here — the client can never be
-// coaxed into sending `mode: 'live'` or a non-boolean consent.
+// Interview API client for the embedded-agent surface (/interview).
+// Transport is injected so the client stays pure and unit-testable; the page
+// supplies a `$fetch`-backed transport. The consent payload is fixed here:
+// the client always sends `consent: true` with `mode: 'live'` — the headless
+// demo verification path drives `mode: 'demo'` directly against the API and
+// never through this client. The transcript itself is not submitted from the
+// page at all: the post-call webhook (HMAC, server-to-server) delivers it,
+// matched by the server-issued interview id.
 
-import type { InterviewCurrent } from '../../shared/types/domain.ts';
+import type {
+	InterviewAssessmentSurface,
+	InterviewCurrent,
+	InterviewResearchSurface,
+} from '../../shared/types/domain.ts';
+
+export type AgentAvailability = {
+	/** Full voice-session stack (existing conversations keep working). */
+	available: boolean;
+	/** The embedded-agent interview surface (agent id + webhook secret). */
+	agentAvailable: boolean;
+	/** The Dify post-call assessment (DIFY_API_KEY). */
+	reportEngineAvailable: boolean;
+	/** Public widget identifier; '' when the agent is not configured. */
+	agentId: string;
+};
 
 export type InterviewHttpResponse = {
 	status: number;
@@ -15,6 +34,17 @@ export type InterviewHttp = (
 	path: string,
 	init: { method: 'GET' | 'POST'; body?: unknown },
 ) => Promise<InterviewHttpResponse>;
+
+export type InterviewsCurrentResult = {
+	interview: InterviewCurrent | null;
+	reportId: string | null;
+};
+
+export type InterviewClient = {
+	availability(): Promise<AgentAvailability>;
+	current(): Promise<InterviewsCurrentResult>;
+	start(): Promise<{ interview: InterviewCurrent }>;
+};
 
 export class ApiFailure extends Error {
 	status: number;
@@ -28,19 +58,21 @@ export class ApiFailure extends Error {
 	}
 }
 
-export type InterviewsCurrentResult = {
-	interview: InterviewCurrent | null;
-	reportId: string | null;
-};
-
-export type InterviewClient = {
-	current(): Promise<InterviewsCurrentResult>;
-	start(): Promise<{ interview: InterviewCurrent }>;
-	complete(
-		interviewId: string,
-		transcript: string,
-	): Promise<{ interview: InterviewCurrent; reportId: string }>;
-};
+const RESEARCH_STATUSES = new Set([
+	'idle',
+	'queued',
+	'submitting',
+	'polling',
+	'completed',
+	'failed',
+]);
+const ASSESSMENT_STATUSES = new Set([
+	'idle',
+	'queued',
+	'running',
+	'completed',
+	'failed',
+]);
 
 function assertInterviewCurrent(
 	value: unknown,
@@ -56,9 +88,44 @@ function assertInterviewCurrent(
 		&& ((value as { mode?: unknown }).mode === 'demo'
 			|| (value as { mode?: unknown }).mode === 'live')
 	) {
-		return value as InterviewCurrent;
+		const current = value as InterviewCurrent;
+		if (current.research !== undefined) {
+			assertResearchSurface(current.research, status);
+		}
+		if (current.assessment !== undefined) {
+			assertAssessmentSurface(current.assessment, status);
+		}
+		return current;
 	}
 	throw new ApiFailure(status, 'internal', 'Unexpected interview response');
+}
+
+function assertResearchSurface(
+	value: unknown,
+	status: number,
+): asserts value is InterviewResearchSurface {
+	const surface = value as { status?: unknown; cases?: unknown };
+	if (
+		typeof surface?.status !== 'string'
+		|| !RESEARCH_STATUSES.has(surface.status)
+		|| !(surface.cases === null || Array.isArray(surface.cases))
+	) {
+		throw new ApiFailure(status, 'internal', 'Unexpected interview response');
+	}
+}
+
+function assertAssessmentSurface(
+	value: unknown,
+	status: number,
+): asserts value is InterviewAssessmentSurface {
+	const surface = value as { status?: unknown; reportId?: unknown };
+	if (
+		typeof surface?.status !== 'string'
+		|| !ASSESSMENT_STATUSES.has(surface.status)
+		|| !(surface.reportId === null || typeof surface.reportId === 'string')
+	) {
+		throw new ApiFailure(status, 'internal', 'Unexpected interview response');
+	}
 }
 
 function failWithEnvelope(response: { status: number; json: unknown }): never {
@@ -96,6 +163,24 @@ export function createInterviewClient(http: InterviewHttp): InterviewClient {
 	}
 
 	return {
+		async availability(): Promise<AgentAvailability> {
+			const response = await send('/api/voice/config', 'GET');
+			if (response.status !== 200) {
+				failWithEnvelope(response);
+			}
+			const json = response.json;
+			if (
+				!isJsonObject(json)
+				|| typeof json.available !== 'boolean'
+				|| typeof json.agentAvailable !== 'boolean'
+				|| typeof json.reportEngineAvailable !== 'boolean'
+				|| typeof json.agentId !== 'string'
+			) {
+				failWithEnvelope(response);
+			}
+			return json as unknown as AgentAvailability;
+		},
+
 		async current(): Promise<InterviewsCurrentResult> {
 			const response = await send('/api/interviews/current', 'GET');
 			if (response.status !== 200) {
@@ -129,7 +214,7 @@ export function createInterviewClient(http: InterviewHttp): InterviewClient {
 		async start(): Promise<{ interview: InterviewCurrent }> {
 			const response = await send('/api/interviews/start', 'POST', {
 				consent: true,
-				mode: 'demo',
+				mode: 'live',
 			});
 			if (response.status !== 200 && response.status !== 201) {
 				failWithEnvelope(response);
@@ -143,31 +228,6 @@ export function createInterviewClient(http: InterviewHttp): InterviewClient {
 					json.interview,
 					response.status,
 				),
-			};
-		},
-
-		async complete(
-			interviewId: string,
-			transcript: string,
-		): Promise<{ interview: InterviewCurrent; reportId: string }> {
-			const response = await send(
-				`/api/interviews/${encodeURIComponent(interviewId)}/complete`,
-				'POST',
-				{ transcript },
-			);
-			if (response.status !== 200) {
-				failWithEnvelope(response);
-			}
-			const json = response.json;
-			if (!isJsonObject(json) || typeof json.reportId !== 'string') {
-				failWithEnvelope(response);
-			}
-			return {
-				interview: assertInterviewCurrent(
-					json.interview,
-					response.status,
-				),
-				reportId: json.reportId,
 			};
 		},
 	};

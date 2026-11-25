@@ -1,6 +1,9 @@
 // Owner-facing interview UI strings (contract §2: every owner-facing string
 // exists in ja and en; no i18n framework — plain locale dictionaries).
 // `en` is typed against `typeof ja` so the two locales cannot drift apart.
+// The interview is a live conversation with the embedded AI agent (Shima
+// Enaga); there is no scripted sample path and no local microphone capture
+// in this surface, so no strings exist for either.
 import type { Locale } from '../../shared/types/domain.ts';
 
 const ja = {
@@ -18,43 +21,56 @@ const ja = {
 		message:
 			'面談は事業主（オーナー）アカウントのみが利用できます。職員の皆さまは職員用のレポート一覧をご利用ください。',
 	},
+	// Network/load failure — retryable.
 	unavailable: {
 		title: '面談の状態を読み込めませんでした',
 		body: '通信の問題が発生した可能性があります。時間をおいて再試行してください。',
 		retryButton: '再試行',
 	},
+	// Honest deployment state: the AI agent is not configured here. Nothing
+	// is called and no substitute surface is offered.
+	agentUnavailable: {
+		title: '面談は現在このサイトで利用できません',
+		body: '面談用のAIエージェントがまだこの環境に設定されていません。設定が完了するまでお待ちください。音声での面談は行われず、何も送信されません。',
+	},
 	intro: {
 		heading: '面談について',
-		lead: 'この面談では、あなたの事業の現状や課題を整理し、今後の支援につなげるための報告書を作成します。所要は1時間以内、途中で中断しても締め切りまでは再開できます。',
+		lead: 'この面談では、AIエージェント「シマ エナガ」とブラウザ上で音声会話を行い、あなたの事業の現状や課題を整理して、今後の支援につなげるための報告書を作成します。',
 		stepsHeading: '進め方',
 		steps: [
-			'内容への同意を確認して面談を開始します（開始から1時間が締め切りです）。',
-			'サンプル面談を進めるか、ご自身のことばで自由に入力します。',
-			'内容を確認して送信すると、報告書の作成が始まります。',
+			'内容への同意を確認して面談を開始します。',
+			'シマ エナガとブラウザ上で話します。長さは会話の中で決まりますので、画面に残り時間の表示はありません。',
+			'会話が終わると面談の記録が自動で保存され、報告書の作成が始まります。',
 		],
-		privacyHeading: 'プライバシーと取り扱い',
-		privacy:
-			'マイク録音は任意です。録音はブラウザの中だけで行われ、音声がそのまま保存・送信されることはありません。文字起こしは自動では行われないため、送信する文章はご自身で入力・編集します。送信した面談内容と報告書は、あなただけと、この支援を担当する予定の役所職員が参照します。',
-		demoHeading: 'サンプル面談について',
-		demo: '架空の旅館を題材にしたサンプル面談（台本）をそのまま使えます。台本を送信前に自由に編集できます。',
+		businessHeading: '面談で使う事業の情報',
+		businessNote:
+			'登録済みの事業情報を使って、エージェントはあなたの事業に合わせた質問をします。内容が違う場合は、会話の中で直接教えてください。あなたのことばが最優先です。',
+		businessLabel: '事業名',
+		locationLabel: '所在地',
+		processingHeading: '面談の記録と報告書',
+		processing:
+			'会話はAI音声サービスを通じて行われ、発話は文字起こしされます。文字起こし結果（面談の記録）はこのサービスのサーバーに保存され、AIによる自動処理で報告書の下書きがまとめられます。作成状況はこのページで確認でき、完成しましたらご登録のメールアドレスにもお知らせします。',
+		researchHeading: '調査データの活用',
+		research:
+			'面談の進行に合わせて、あなたの事業と同じ地域・業種の取り組み事例を自動で調査し、会話の中で比較材料として使うことがあります。調査は自動で行われ、あなたが何かを入力する必要はありません。',
 		nextButton: '同意の確認へ進む',
 	},
 	consent: {
 		heading: '同意の確認',
 		legend: '確認事項（すべて必須）',
-		intro: '面談を開始する前に、次のすべてに同意してください。同意は面談の開始記録として、開始日時とともに保存されます。',
+		intro: '面談を開始する前に、次のすべてに同意してください。同意は面談の開始記録として、開始日時とともに保存されます。すべてに同意するまで、音声会話は始まりません。',
 		items: {
 			processing: {
 				label: '自動処理による報告書の作成に同意します',
-				detail: '送信された面談内容は、自動処理（現在のデモではルールベースの自動下書き）で報告書にまとめられます。内容が人によって読まれる前に、まず自動処理されることをご了承ください。',
+				detail: '保存された面談の記録は、人によって読まれる前に自動処理され、報告書の下書きとしてまとめられます。',
 			},
 			privacy: {
-				label: '録音と文字起こしの扱いに同意します',
-				detail: 'マイク録音は任意です。録音はこのブラウザの中だけで行われ、音声データは保存も送信もされません（面談の終了、ページを離れる、締め切りの時点で破棄されます）。文字起こしは自動では行われず、送信する文章はご自身で入力・編集します。',
+				label: 'AI音声での面談と文字起こしの扱いに同意します',
+				detail: '面談はAIエージェントとの音声会話で行われます。マイクの音声は会話の処理と文字起こしのためにAI音声サービスに送信されます。文字起こし結果（面談の記録）はこのサービスのサーバーに保存され、報告書の作成に使われます。このページに残り時間の表示はなく、会話の長さはエージェントが管理します。',
 			},
 			staff: {
 				label: '担当職員による参照に同意します',
-				detail: '送信された面談内容と生成された報告書は、あなただけと、この支援を担当する予定の役所職員が参照します。それ以外の第三者に公開されることはありません。',
+				detail: '保存された面談の記録と生成された報告書は、あなただけと、この支援を担当する予定の役所職員が参照します。それ以外の第三者に公開されることはありません。',
 			},
 		},
 		requiredHint:
@@ -62,83 +78,48 @@ const ja = {
 		startButton: '面談を開始する',
 		starting: '開始しています…',
 	},
-	timer: {
-		label: '残り時間',
-		expired: '終了',
-		announcements: {
-			remaining_5_minutes: '残り時間は5分です。',
-			remaining_1_minute: '残り時間は1分です。',
-			remaining_30_seconds: '残り時間は30秒です。',
-			remaining_10_seconds: '残り時間は10秒です。',
-		},
+	live: {
+		agentName: 'シマ エナガ',
+		entering: '面談を開始しました。シマ エナガがまもなく話しかけます。',
+		resumed: '進行中の面談を再開しました。',
+		inCall:
+			'シマ エナガと話しています。終えるときは、ウィジェットの終了ボタンを使うか、下の「面談を終了する」を選んでください。',
+		endButton: '面談を終了する',
+		ending: '終了しています…',
+		ended:
+			'面談を終了しました。記録の保存を確認しています。このページを離れても、記録は自動で保存されます。',
+		backHome: 'ホームに戻る',
+		checkAgain: '面談の状態をもう一度確認する',
 	},
-	demoBadge: 'サンプル面談（フィクション）',
-	script: {
-		heading: 'サンプル面談を進める',
-		note: '台本のやり取りを1行ずつ表示し、表示した内容がそのまま面談記録（文字起こし）に追加されます。内容は架空のものです。送信前に自由に編集できます。',
-		personaLabel: '面談相手（架空）',
-		progress: '{current} / {total}',
-		nextLine: '次のやり取りを表示して記録に追加',
-		fillAll: '残りをすべて表示して記録に追加',
-		restart: '台本を最初から',
-		speechLabel: 'ブラウザの音声で読み上げる（この端末内だけ）',
-		speechUnsupported:
-			'このブラウザでは音声読み上げを利用できません。文字で確認できます。',
-		lineLabel: '現在のやり取り',
-		done: '台本はすべて表示済みです。下の面談記録を確認して送信してください。',
+	research: {
+		heading: '調査データ',
+		queued: '面談の開始時に調査を開始します。',
+		started: '取り組み事例を調査しています…',
+		completedOne:
+			'取り組み事例を1件調査しました。会話の中で比較材料として使われます。',
+		completed:
+			'取り組み事例を{count}件調査しました。会話の中で比較材料として使われます。',
+		failed: '調査は利用できませんでした。面談はあなたのことばだけで進めます。',
+		notConnected:
+			'調査はこの面談では利用できません。面談はあなたのことばだけで進めます。',
+		caseLabel: '調査した取り組み事例',
 	},
-	capture: {
-		heading: 'マイク録音（任意）',
-		note: '録音はこのブラウザの中だけで行われ、音声がそのまま保存・送信されることはありません。文字起こしは自動では行われないため、録音を聞き直しながら、下の入力欄にご自身のことばで記入してください。録音は面談の終了、ページを離れる、締め切りの時点で破棄されます。',
-		startButton: '録音を開始',
-		stopButton: '録音を停止',
-		recordingBadge: '録音中',
-		startedAnnouncement: '録音を開始しました。',
-		stoppedAnnouncement: '録音を停止しました。',
-		requestingAnnouncement: 'マイクの許可を確認しています…',
-		reviewLabel: '録音の確認（この画面だけで再生）',
-		reviewHint:
-			'再生はこの端末の中だけで行われます。締め切りや面談の終了後には録音は破棄されます。',
-		clearReview: '録音データを破棄',
-		deniedHelp:
-			'マイクの使用が許可されていません。ブラウザの設定で許可するか、録音せずに入力だけで面談を進められます。',
-		notFoundHelp:
-			'マイクが見つからないか、他のアプリで使われています。録音せずに入力だけで面談を進められます。',
-		unknownHelp:
-			'録音を開始できませんでした。録音せずに入力だけで面談を進められます。',
-		unsupportedNote:
-			'このブラウザでは録音を利用できません。入力だけで面談を進められます。',
+	assessment: {
+		preparing:
+			'報告書を作成しています。完成しましたら、ご登録のメールアドレスにお知らせします。',
+		unavailable:
+			'報告書の自動作成がこの環境で利用できないため、報告書は作成されません。面談の記録は保存されています。担当職員に直接ご相談ください。',
+		failed:
+			'報告書の作成に失敗しました。面談の記録は保存されています。時間をおいて再度確認するか、担当職員に直接ご相談ください。',
 	},
-	transcript: {
-		heading: '面談記録（送信する内容）',
-		label: '面談の内容',
-		hint: 'この内容がそのまま送信されます。送信前なら自由に編集できます。',
-		placeholder:
-			'例）面接者: 現在の状況を教えてください。\n経営者: 従業員2人の小さな店で、後継ぎがいません…',
-		restored: '途中まで入力した下書きを復元しました。',
-		charCount: '{count} 文字',
-		emptyError: '面談の内容が空です。何かご記入ください。',
-		tooLongError: '文字数が多すぎます。20万字以内で送信してください。',
-		readonlyAfterExpiry: '締め切りを過ぎたため、これ以上編集できません。',
-		submitHeading: '内容を確認して送信',
-		submitButton: '面談を送信する',
-		submitting: '送信しています…',
-		submitHint:
-			'送信すると報告書の作成が始まります。送信後は編集できません。',
-	},
-	activeNotice: {
-		entered: '面談を開始しました。残り時間にご注意ください。',
-		resumed: '面談を再開しました。',
+	demoActive: {
+		title: '面談が進行中です',
+		body: 'この面談はシステムからの確認用に開始されたもので、このページからは操作できません。しばらくしてからもう一度このページを開いてください。',
 	},
 	submitted: {
 		heading: '面談を送信しました',
-		body: '面談の内容を受け付けました。報告書の作成が始まっています。完成しましたら、ご登録のメールアドレスにお知らせをお送りします。',
+		body: '面談の記録を受け付けました。報告書の作成が始まっています。完成しましたら、ご登録のメールアドレスにお知らせをお送りします。',
 		reportLink: '報告書のページを開く',
-	},
-	expired: {
-		heading: '面談の締め切りを過ぎました',
-		body: '面談の制限時間（1時間）が経過したため、録音と編集を停止しました。この面談は締め切り済みとして扱われます。入力途中の内容は破棄されます。必要であれば、新しい面談を開始できます。',
-		restartButton: '新しい面談を開始する',
 	},
 	errors: {
 		network: '通信に問題が発生しました。時間をおいて再試行してください。',
@@ -179,38 +160,48 @@ const en: InterviewStrings = {
 		body: 'A network problem may have occurred. Please try again in a moment.',
 		retryButton: 'Retry',
 	},
+	agentUnavailable: {
+		title: 'The interview is not available on this site right now',
+		body: 'The AI agent for interviews has not been configured for this environment yet. Please wait until the setup is complete. No voice conversation is started and nothing is submitted.',
+	},
 	intro: {
 		heading: 'About the interview',
-		lead: 'This interview helps you organize the current state and challenges of your business, and creates a report for future support. It takes at most one hour, and you can resume until the deadline if you stop midway.',
+		lead: 'In this interview you talk with the AI agent “Shima Enaga” in the browser about the current state and challenges of your business, and a report is created for future support.',
 		stepsHeading: 'How it works',
 		steps: [
-			'Confirm your consent to start the interview (you have one hour from the start).',
-			'Play through the sample interview, or write freely in your own words.',
-			'Review and submit; report generation then begins.',
+			'Confirm your consent to start the interview.',
+			'Talk with Shima Enaga in the browser. The agent manages the length of the conversation, so the page shows no timer.',
+			'When the conversation ends, the interview record is saved automatically and report preparation begins.',
 		],
-		privacyHeading: 'Privacy and handling',
-		privacy:
-			'Microphone recording is optional. Recording happens only inside your browser; the audio itself is never saved or sent. Transcription is not automatic — you type and edit the text you submit. Your submitted interview content and the report are visible only to you and to the municipal staff designated to support this program.',
-		demoHeading: 'About the sample interview',
-		demo: 'For accommodation businesses, a scripted sample interview with a fictional inn is available. For other business types, please write your own content in the free-text path. In both cases you can edit everything before submitting.',
+		businessHeading: 'Business information used in the interview',
+		businessNote:
+			'The agent asks questions tailored to your business using your registered business information. If something is wrong, tell the agent directly in the conversation — your own words always take precedence.',
+		businessLabel: 'Business name',
+		locationLabel: 'Location',
+		processingHeading: 'Interview record and report',
+		processing:
+			'The conversation runs through an AI voice service, and what you say is transcribed. The transcript (the interview record) is stored on this service’s server, and automated processing drafts the report from it. You can follow the progress on this page, and we will notify your registered email address when the report is ready.',
+		researchHeading: 'Research data',
+		research:
+			'During the interview, initiatives in the same region and industry as your business are researched automatically and may be used in the conversation as material for comparison. The research runs by itself; you never have to enter anything.',
 		nextButton: 'Go to the consent check',
 	},
 	consent: {
 		heading: 'Consent check',
 		legend: 'Acknowledgements (all required)',
-		intro: 'Before the interview starts, please agree to all of the following. Your consent is recorded together with the interview start time.',
+		intro: 'Before the interview starts, please agree to all of the following. Your consent is recorded together with the interview start time. The voice conversation does not begin until every item is agreed.',
 		items: {
 			processing: {
 				label: 'I agree that my content is processed automatically to draft a report',
-				detail: 'The submitted interview content is summarized into a report by automated processing (a rule-based draft in the current demo). Please be aware that automated processing happens before any person reads it.',
+				detail: 'The saved interview record is processed automatically — before any person reads it — and summarized into a report draft.',
 			},
 			privacy: {
-				label: 'I understand how recording and transcription are handled',
-				detail: 'Microphone recording is optional. Recording happens only inside this browser; the audio data is never saved or uploaded (it is discarded when the interview ends, when you leave the page, or at the deadline). Transcription is not automatic — you type and edit the text you submit.',
+				label: 'I understand how the AI voice conversation and transcription are handled',
+				detail: 'The interview is a voice conversation with an AI agent. Your microphone audio is sent to the AI voice service for conversation processing and transcription. The transcript (the interview record) is stored on this service’s server and used to prepare the report. The page shows no timer; the agent manages the length of the conversation.',
 			},
 			staff: {
 				label: 'I agree that designated staff can view my content',
-				detail: 'Your submitted interview content and the generated report are visible only to you and to the municipal staff designated to support this program. They are not published to any other third party.',
+				detail: 'The saved interview record and the generated report are visible only to you and to the municipal staff designated to support this program. They are not published to any other third party.',
 			},
 		},
 		requiredHint:
@@ -218,86 +209,50 @@ const en: InterviewStrings = {
 		startButton: 'Start the interview',
 		starting: 'Starting…',
 	},
-	timer: {
-		label: 'Time remaining',
-		expired: 'Time is up',
-		announcements: {
-			remaining_5_minutes: '5 minutes remaining.',
-			remaining_1_minute: '1 minute remaining.',
-			remaining_30_seconds: '30 seconds remaining.',
-			remaining_10_seconds: '10 seconds remaining.',
-		},
+	live: {
+		agentName: 'Shima Enaga',
+		entering:
+			'The interview has started. Shima Enaga will speak to you shortly.',
+		resumed: 'The interview in progress has been resumed.',
+		inCall:
+			'You are talking with Shima Enaga. When you are done, use the widget’s end button or choose “End the interview” below.',
+		endButton: 'End the interview',
+		ending: 'Ending…',
+		ended:
+			'The interview has ended. We are waiting for the record to be saved. You can leave this page; the record is saved automatically either way.',
+		backHome: 'Back to home',
+		checkAgain: 'Check the interview status again',
 	},
-	demoBadge: 'Sample interview (fictional)',
-	script: {
-		heading: 'Play the sample interview',
-		note: 'The scripted dialogue is revealed line by line, and each revealed line is added to the interview transcript. The content is fictional. You can edit everything before submitting.',
-		personaLabel: 'Interview partner (fictional)',
-		progress: '{current} / {total}',
-		nextLine: 'Show the next exchange and add it to the record',
-		fillAll: 'Show the rest and add it all to the record',
-		restart: 'Restart the script',
-		speechLabel: 'Read aloud with the browser voice (this device only)',
-		speechUnsupported:
-			'Speech playback is not available in this browser. You can still read the text.',
-		lineLabel: 'Current exchange',
-		done: 'The whole script has been revealed. Review the record below and submit.',
+	research: {
+		heading: 'Research data',
+		queued: 'Research starts when the interview begins.',
+		started: 'Researching initiatives…',
+		completedOne:
+			'One initiative was researched. It is used in the conversation as material for comparison.',
+		completed:
+			'{count} initiatives were researched. They are used in the conversation as material for comparison.',
+		failed:
+			'The research was unavailable. The interview continues with your own words only.',
+		notConnected:
+			'Research is not available for this interview. The interview continues with your own words only.',
+		caseLabel: 'Researched initiatives',
 	},
-	capture: {
-		heading: 'Microphone recording (optional)',
-		note: 'Recording happens only inside this browser; the audio itself is never saved or uploaded. Transcription is not automatic — listen back to your recording and type it into the editor below in your own words. The recording is discarded when the interview ends, when you leave the page, or at the deadline.',
-		startButton: 'Start recording',
-		stopButton: 'Stop recording',
-		recordingBadge: 'Recording',
-		startedAnnouncement: 'Recording started.',
-		stoppedAnnouncement: 'Recording stopped.',
-		requestingAnnouncement: 'Checking microphone permission…',
-		reviewLabel: 'Review your recording (plays on this screen only)',
-		reviewHint:
-			'Playback happens on this device only. The recording is discarded after the deadline or when the interview ends.',
-		clearReview: 'Discard the recording data',
-		deniedHelp:
-			'Microphone access was not allowed. Allow it in your browser settings, or continue with typed input only.',
-		notFoundHelp:
-			'No microphone was found, or it is in use by another application. You can continue with typed input only.',
-		unknownHelp:
-			'Recording could not be started. You can continue with typed input only.',
-		unsupportedNote:
-			'Recording is not available in this browser. You can continue with typed input only.',
+	assessment: {
+		preparing:
+			'The report is being prepared. We will notify your registered email address when it is ready.',
+		unavailable:
+			'Automated report preparation is not available in this environment, so no report is created. Your interview record is saved. Please consult the designated staff directly.',
+		failed:
+			'Report preparation failed. Your interview record is saved. Please check again later or consult the designated staff directly.',
 	},
-	transcript: {
-		heading: 'Interview record (what will be submitted)',
-		label: 'Interview content',
-		hint: 'This text is submitted as-is. You can edit it freely until you submit.',
-		placeholder:
-			'Example) Interviewer: Please tell us about your current situation.\nOwner: We run a small shop with two employees and no successor…',
-		restored: 'Your draft from earlier was restored.',
-		charCount: '{count} characters',
-		emptyError: 'The interview content is empty. Please write something.',
-		tooLongError:
-			'The text is too long. Please keep it within 200,000 characters.',
-		readonlyAfterExpiry:
-			'The deadline has passed, so no further editing is possible.',
-		submitHeading: 'Review and submit',
-		submitButton: 'Submit the interview',
-		submitting: 'Submitting…',
-		submitHint:
-			'Submitting starts the report generation. The content cannot be edited afterwards.',
-	},
-	activeNotice: {
-		entered:
-			'The interview has started. Please keep an eye on the remaining time.',
-		resumed: 'The interview has been resumed.',
+	demoActive: {
+		title: 'An interview is in progress',
+		body: 'This interview was started by the system for verification and cannot be driven from this page. Please open this page again later.',
 	},
 	submitted: {
 		heading: 'Your interview was submitted',
-		body: 'Your interview content has been received and report generation has started. You will be notified at your registered email address when the report is ready.',
+		body: 'Your interview record has been received and report preparation has started. You will be notified at your registered email address when the report is ready.',
 		reportLink: 'Open the report page',
-	},
-	expired: {
-		heading: 'The interview deadline has passed',
-		body: 'The one-hour limit has elapsed, so recording and editing have been stopped. This interview is treated as closed and your draft has been discarded. You can start a new interview if you need to.',
-		restartButton: 'Start a new interview',
 	},
 	errors: {
 		network: 'A network problem occurred. Please try again in a moment.',

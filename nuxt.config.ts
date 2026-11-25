@@ -9,6 +9,13 @@ export default defineNuxtConfig({
 		'@nuxtjs/color-mode',
 	],
 	css: ['~/styles/global.scss'],
+	// The ElevenLabs Conversational AI embed is a plain web component
+	// (<elevenlabs-convai>), not a Vue component.
+	vue: {
+		compilerOptions: {
+			isCustomElement: (tag: string) => tag === 'elevenlabs-convai',
+		},
+	},
 	nitro: {
 		esbuild: {
 			options: {

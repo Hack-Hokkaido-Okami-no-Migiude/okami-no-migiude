@@ -49,12 +49,6 @@
 						{{ t.home.ctaStartOwner }}
 					</NuxtLink>
 					<NuxtLink
-						to="/voice"
-						class="button-secondary"
-					>
-						{{ t.home.ctaStartVoice }}
-					</NuxtLink>
-					<NuxtLink
 						to="/snow"
 						class="button-secondary"
 					>
