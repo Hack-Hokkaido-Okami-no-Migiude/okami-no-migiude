@@ -82,6 +82,30 @@ function initSchema(db: DatabaseSync): void {
 			deadline_at TEXT NOT NULL,
 			submitted_at TEXT,
 			transcript TEXT,
+			-- Live-agent lifecycle (mode 'live'): background research over the
+			-- owner's profile intake plus the post-call Dify assessment. Both
+			-- are durable state on the row (same pattern as voice_sessions),
+			-- so boot recovery is inherent. Demo rows keep everything idle.
+			business_json TEXT,
+			report_language TEXT,
+			research_status TEXT NOT NULL DEFAULT 'idle'
+				CHECK (research_status IN ('idle', 'queued', 'submitting', 'polling', 'completed', 'failed')),
+			research_task_id TEXT,
+			research_deadline INTEGER,
+			research_poll_at INTEGER,
+			research_cases TEXT,
+			assessment_status TEXT NOT NULL DEFAULT 'idle'
+				CHECK (assessment_status IN ('idle', 'queued', 'running', 'completed', 'failed')),
+			assessment_attempts INTEGER NOT NULL DEFAULT 0,
+			assessment_after INTEGER,
+			assessment_deadline INTEGER,
+			assessment_report_id TEXT,
+			assessment_research_status TEXT NOT NULL DEFAULT 'idle'
+				CHECK (assessment_research_status IN ('idle', 'submitting', 'polling', 'completed', 'failed')),
+			assessment_research_task_id TEXT,
+			assessment_research_deadline INTEGER,
+			assessment_research_poll_at INTEGER,
+			assessment_research_cases TEXT,
 			created_at TEXT NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_interviews_owner ON interviews(owner_id, status);
@@ -95,6 +119,10 @@ function initSchema(db: DatabaseSync): void {
 			owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			business_name TEXT NOT NULL,
 			locale TEXT NOT NULL,
+			-- What produced the content: the rule-based demo analyzer or the
+			-- Dify post-call assessment. Drives the honest page label.
+			generator TEXT NOT NULL DEFAULT 'rule_based'
+				CHECK (generator IN ('rule_based', 'dify')),
 			status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'failed')),
 			content TEXT,
 			failure_reason TEXT,
@@ -256,6 +284,8 @@ function migrateLegacySchema(db: DatabaseSync): void {
 				owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 				business_name TEXT NOT NULL,
 				locale TEXT NOT NULL,
+				generator TEXT NOT NULL DEFAULT 'rule_based'
+					CHECK (generator IN ('rule_based', 'dify')),
 				status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'failed')),
 				content TEXT,
 				failure_reason TEXT,
@@ -281,6 +311,38 @@ function migrateLegacySchema(db: DatabaseSync): void {
 			'CREATE INDEX IF NOT EXISTS idx_reports_pending ON reports(status, generate_after);',
 		);
 		db.exec('PRAGMA foreign_keys = ON;');
+	}
+	// Legacy reports tables predate the generator column; everything produced
+	// before the Dify assessment was rule-based demo output, so the default
+	// label is the honest migration for existing rows.
+	if (reportColumns.size > 0 && !reportColumns.has('generator')) {
+		db.exec(
+			"ALTER TABLE reports ADD COLUMN generator TEXT NOT NULL DEFAULT 'rule_based'",
+		);
+	}
+	// Legacy interviews tables predate the live-agent lifecycle columns; demo
+	// rows never used them, so the idle defaults are the correct migration.
+	const interviewColumns = tableColumns(db, 'interviews');
+	if (interviewColumns.size > 0 && !interviewColumns.has('research_status')) {
+		db.exec(`
+			ALTER TABLE interviews ADD COLUMN business_json TEXT;
+			ALTER TABLE interviews ADD COLUMN report_language TEXT;
+			ALTER TABLE interviews ADD COLUMN research_status TEXT NOT NULL DEFAULT 'idle';
+			ALTER TABLE interviews ADD COLUMN research_task_id TEXT;
+			ALTER TABLE interviews ADD COLUMN research_deadline INTEGER;
+			ALTER TABLE interviews ADD COLUMN research_poll_at INTEGER;
+			ALTER TABLE interviews ADD COLUMN research_cases TEXT;
+			ALTER TABLE interviews ADD COLUMN assessment_status TEXT NOT NULL DEFAULT 'idle';
+			ALTER TABLE interviews ADD COLUMN assessment_attempts INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE interviews ADD COLUMN assessment_after INTEGER;
+			ALTER TABLE interviews ADD COLUMN assessment_deadline INTEGER;
+			ALTER TABLE interviews ADD COLUMN assessment_report_id TEXT;
+			ALTER TABLE interviews ADD COLUMN assessment_research_status TEXT NOT NULL DEFAULT 'idle';
+			ALTER TABLE interviews ADD COLUMN assessment_research_task_id TEXT;
+			ALTER TABLE interviews ADD COLUMN assessment_research_deadline INTEGER;
+			ALTER TABLE interviews ADD COLUMN assessment_research_poll_at INTEGER;
+			ALTER TABLE interviews ADD COLUMN assessment_research_cases TEXT;
+		`);
 	}
 	const voiceColumns = tableColumns(db, 'voice_sessions');
 	if (voiceColumns.size > 0 && !voiceColumns.has('assessment_status')) {

@@ -69,7 +69,14 @@
 		textBgDanger: props.report.status === 'failed',
 	}));
 
-	const draftLabel = computed(() => props.structured?.draftLabel ?? null);
+	const draftLabel = computed(() => {
+		// Honest labeling: a Dify-produced report is never presented with the
+		// rule-based draft label, even if its content would parse as one.
+		if (props.report.generator === 'dify') {
+			return props.copy.generatorBadge;
+		}
+		return props.structured?.draftLabel ?? null;
+	});
 
 	const municipality = computed(
 		() => props.structured?.meta.municipality ?? null,

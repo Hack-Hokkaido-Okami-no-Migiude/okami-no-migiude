@@ -11,6 +11,7 @@ export const reportEn: ReportPageCopy = {
 		ready: 'Ready',
 		failed: 'Failed',
 	},
+	generatorBadge: 'AI draft (Dify)',
 	viewingAsStaff: 'Viewing as staff',
 	metaMunicipality: 'Municipality',
 	metaGeneratedAt: 'Generated at',

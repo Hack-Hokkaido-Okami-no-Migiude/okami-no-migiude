@@ -68,6 +68,7 @@ export default defineApi(async (event) => {
 			ownerId: user.id,
 			businessName: user.profile.businessName,
 			locale: user.profile.locale,
+			generator: 'rule_based',
 			createdAt: submittedAt,
 		});
 	});

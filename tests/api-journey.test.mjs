@@ -773,6 +773,32 @@ test(
 				}),
 				'mode_unavailable',
 			);
+			// The agent is unconfigured on this deployment: live start is
+			// refused before anything is created (honest unavailable state).
+			expectStatus(
+				'start live unavailable status',
+				await request(a.baseUrl, 'POST', '/api/interviews/start', {
+					jar: jarA,
+					body: { consent: true, mode: 'live' },
+				}),
+				409,
+			);
+			// O13: the retired voice-session API refuses new conversations.
+			const voiceRefused = await request(
+				a.baseUrl,
+				'POST',
+				'/api/voice/sessions',
+				{
+					jar: jarA,
+					body: { consent: true },
+				},
+			);
+			expectStatus('new voice session is refused', voiceRefused, 410);
+			expectErrorCode(
+				'new voice session is refused',
+				voiceRefused,
+				'superseded',
+			);
 			expectErrorCode(
 				'start unknown mode',
 				await request(a.baseUrl, 'POST', '/api/interviews/start', {
@@ -1938,8 +1964,9 @@ test(
 					// itself serve — the canonical config must drive both the
 					// write-origin check and the Secure cookie attribute.
 					PUBLIC_BASE_URL: CANONICAL_ORIGIN,
-					// Integration values are set: live mode must still reject
-					// until a real handoff exists (review finding).
+					// Integration values are set: without a configured agent the
+					// live interview surface still refuses to start (honest
+					// unavailable state; no substitute surface is offered).
 					INTEGRATION_BASE_URL: 'https://integration.example.test',
 					INTEGRATION_TOKEN: 'demo-only-not-a-secret',
 				},
@@ -2000,7 +2027,8 @@ test(
 			);
 			expectStatus('login without origin header', loginG, 200);
 
-			// Live mode is rejected even with both integration values set.
+			// Live start is still refused with integration values set: the
+			// gate is the agent configuration, not those values.
 			expectErrorCode(
 				'start live with integration env set',
 				await request(server.baseUrl, 'POST', '/api/interviews/start', {

@@ -1,5 +1,7 @@
-// Unit tests for the interview API client: wire shapes, error envelope
-// mapping and response shape validation (contract §3–§6).
+// Unit tests for the interview API client of the agent surface: wire
+// shapes, error envelope mapping and response shape validation. The client
+// always starts mode 'live' with a boolean consent; the transcript is never
+// submitted from the page (the post-call webhook delivers it).
 import assert from 'node:assert/strict';
 import { createInterviewClient } from '../app/utils/interview-api.ts';
 import test from 'node:test';
@@ -8,7 +10,16 @@ const INTERVIEW = {
 	id: 'interview-1',
 	status: 'active',
 	deadlineAt: '2026-11-25T09:00:00.000Z',
-	mode: 'demo',
+	mode: 'live',
+	research: { status: 'queued', started: false, cases: null },
+	assessment: { status: 'idle', reportId: null },
+};
+
+const AVAILABILITY = {
+	available: true,
+	agentAvailable: true,
+	reportEngineAvailable: true,
+	agentId: 'agent_stub',
 };
 
 function fakeHttp() {
@@ -33,7 +44,7 @@ function fakeHttp() {
 	return http;
 }
 
-test('start sends exactly the recorded demo consent payload', async () => {
+test('start sends exactly the live consent payload', async () => {
 	const http = fakeHttp();
 	http.enqueue({ status: 201, json: { interview: INTERVIEW } });
 	const client = createInterviewClient(http);
@@ -42,10 +53,36 @@ test('start sends exactly the recorded demo consent payload', async () => {
 		{
 			path: '/api/interviews/start',
 			method: 'POST',
-			body: { consent: true, mode: 'demo' },
+			body: { consent: true, mode: 'live' },
 		},
 	]);
 	assert.deepEqual(result, { interview: INTERVIEW });
+});
+
+test('availability validates the config shape', async () => {
+	const http = fakeHttp();
+	http.enqueue({ status: 200, json: AVAILABILITY });
+	const client = createInterviewClient(http);
+	assert.deepEqual(await client.availability(), AVAILABILITY);
+
+	http.enqueue({ status: 200, json: { available: true } });
+	await assert.rejects(
+		() => client.availability(),
+		(error) => {
+			assert.equal(error.code, 'internal');
+			return true;
+		},
+	);
+
+	http.enqueue({ status: 503, json: null });
+	await assert.rejects(
+		() => client.availability(),
+		(error) => {
+			assert.equal(error.code, 'internal');
+			assert.equal(error.status, 503);
+			return true;
+		},
+	);
 });
 
 test('current sends GET without a body and validates the shape', async () => {
@@ -80,35 +117,58 @@ test('current sends GET without a body and validates the shape', async () => {
 	);
 });
 
-test('complete posts the transcript and returns interview + report', async () => {
+test('current rejects malformed live surfaces', async () => {
 	const http = fakeHttp();
+	const client = createInterviewClient(http);
+
 	http.enqueue({
 		status: 200,
-		json: { interview: INTERVIEW, reportId: 'report-1' },
-	});
-	const client = createInterviewClient(http);
-	const result = await client.complete('interview-1', 'transcript text');
-	assert.deepEqual(http.calls, [
-		{
-			path: '/api/interviews/interview-1/complete',
-			method: 'POST',
-			body: { transcript: 'transcript text' },
+		json: {
+			interview: {
+				...INTERVIEW,
+				research: { status: 'sprinting', started: false, cases: null },
+			},
+			reportId: null,
 		},
-	]);
-	assert.deepEqual(result, { interview: INTERVIEW, reportId: 'report-1' });
+	});
+	await assert.rejects(
+		() => client.current(),
+		(error) => {
+			assert.equal(error.code, 'internal');
+			return true;
+		},
+	);
+
+	http.enqueue({
+		status: 200,
+		json: {
+			interview: {
+				...INTERVIEW,
+				assessment: { status: 'completed', reportId: 42 },
+			},
+			reportId: null,
+		},
+	});
+	await assert.rejects(
+		() => client.current(),
+		(error) => {
+			assert.equal(error.code, 'internal');
+			return true;
+		},
+	);
 });
 
 test('error envelope is mapped to typed failures', async () => {
 	const http = fakeHttp();
 	http.enqueue({
 		status: 409,
-		json: { error: 'interview_expired', message: 'too late' },
+		json: { error: 'already_submitted', message: 'too late' },
 	});
 	const client = createInterviewClient(http);
 	await assert.rejects(
-		() => client.complete('i', 't'),
+		() => client.start(),
 		(error) => {
-			assert.equal(error.code, 'interview_expired');
+			assert.equal(error.code, 'already_submitted');
 			assert.equal(error.status, 409);
 			assert.equal(error.message, 'too late');
 			return true;

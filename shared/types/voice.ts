@@ -3,7 +3,16 @@
 // transcript and research cases are recorded, no report is produced yet.
 import type { Locale } from './domain';
 
-export type VoiceConfigResponse = { available: boolean };
+export type VoiceConfigResponse = {
+	/** Full voice-session stack (existing conversations keep working). */
+	available: boolean;
+	/** The embedded-agent interview surface (agent id + webhook secret). */
+	agentAvailable: boolean;
+	/** The Dify post-call assessment (DIFY_API_KEY). */
+	reportEngineAvailable: boolean;
+	/** Public widget identifier; '' when the agent is not configured. */
+	agentId: string;
+};
 
 export type VoiceBusiness = {
 	businessName: string;

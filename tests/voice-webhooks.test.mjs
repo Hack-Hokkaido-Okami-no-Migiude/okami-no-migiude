@@ -10,6 +10,7 @@ import test from 'node:test';
 import {
 	AGENT_LABEL,
 	OWNER_LABEL,
+	readWebhookInterviewId,
 	requiredWebhookString,
 	secretMatches,
 	toTranscript,
@@ -146,4 +147,74 @@ test('secretMatches compares secrets in constant time by hash', () => {
 	assert.equal(secretMatches('', ''), true);
 	assert.equal(secretMatches('a', 'b'), false);
 	assert.equal(secretMatches('a', ''), false);
+});
+
+test('readWebhookInterviewId picks the interview id dynamic variable', () => {
+	const data = {
+		conversation_initiation_client_data: {
+			dynamic_variables: {
+				interview_id: ' 01890a5e-7f2b-7d92-a111-000000000001 ',
+				web_business_context: '{"business_name":"x"}',
+				system__call_duration_secs: 900,
+			},
+		},
+	};
+	assert.equal(
+		readWebhookInterviewId(data),
+		'01890a5e-7f2b-7d92-a111-000000000001',
+	);
+});
+
+test('readWebhookInterviewId returns empty for junk shapes', () => {
+	assert.equal(readWebhookInterviewId({}), '');
+	assert.equal(
+		readWebhookInterviewId({ conversation_initiation_client_data: null }),
+		'',
+	);
+	assert.equal(
+		readWebhookInterviewId({
+			conversation_initiation_client_data: { dynamic_variables: 'nope' },
+		}),
+		'',
+	);
+	assert.equal(
+		readWebhookInterviewId({
+			conversation_initiation_client_data: {
+				dynamic_variables: { interview_id: 42 },
+			},
+		}),
+		'',
+	);
+	assert.equal(
+		readWebhookInterviewId({
+			conversation_initiation_client_data: {
+				dynamic_variables: { interview_id: '' },
+			},
+		}),
+		'',
+	);
+	assert.equal(
+		readWebhookInterviewId({
+			conversation_initiation_client_data: {
+				dynamic_variables: { interview_id: 'a\nb' },
+			},
+		}),
+		'',
+	);
+	assert.equal(
+		readWebhookInterviewId({
+			conversation_initiation_client_data: {
+				dynamic_variables: { interview_id: 'x'.repeat(65) },
+			},
+		}),
+		'',
+	);
+	assert.equal(
+		readWebhookInterviewId({
+			conversation_initiation_client_data: {
+				dynamic_variables: { interview_id: 'x'.repeat(64) },
+			},
+		}),
+		'x'.repeat(64),
+	);
 });

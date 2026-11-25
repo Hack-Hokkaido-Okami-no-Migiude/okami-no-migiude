@@ -2,18 +2,11 @@
 	<div
 		class="page-shell interview-page"
 		:lang="locale"
+		:data-interview-state="flow.phase.value"
 	>
 		<header class="page-shell__header interview-page__header">
 			<p class="eyebrow">{{ strings.eyebrow }}</p>
-			<div
-				class="d-flex align-items-center justify-content-between flex-wrap gap-2"
-			>
-				<h1 class="mb-0">{{ strings.title }}</h1>
-				<InterviewDemoBadge
-					v-if="showDemoBadge"
-					:label="strings.demoBadge"
-				/>
-			</div>
+			<h1 class="mb-0">{{ strings.title }}</h1>
 		</header>
 
 		<section
@@ -56,6 +49,22 @@
 			<p class="mb-0">{{ strings.staffNotice.message }}</p>
 		</section>
 
+		<!-- Honest deployment state: the agent is not configured, so nothing
+		     is called and no substitute interview surface is offered. -->
+		<section
+			v-else-if="flow.phase.value === 'agent-unavailable'"
+			class="panel interview-page__section"
+			data-testid="interview-agent-unavailable"
+		>
+			<h2
+				id="interview-agent-unavailable-heading"
+				tabindex="-1"
+			>
+				{{ strings.agentUnavailable.title }}
+			</h2>
+			<p class="mb-0">{{ strings.agentUnavailable.body }}</p>
+		</section>
+
 		<section
 			v-else-if="flow.phase.value === 'unavailable'"
 			class="panel interview-page__section"
@@ -74,6 +83,19 @@
 			>
 				{{ strings.unavailable.retryButton }}
 			</button>
+		</section>
+
+		<section
+			v-else-if="flow.phase.value === 'demo-active'"
+			class="panel interview-page__section"
+		>
+			<h2
+				id="interview-demo-active-heading"
+				tabindex="-1"
+			>
+				{{ strings.demoActive.title }}
+			</h2>
+			<p class="mb-0">{{ strings.demoActive.body }}</p>
 		</section>
 
 		<section
@@ -107,10 +129,22 @@
 					{{ step }}
 				</li>
 			</ol>
-			<h3>{{ strings.intro.privacyHeading }}</h3>
-			<p>{{ strings.intro.privacy }}</p>
-			<h3>{{ strings.intro.demoHeading }}</h3>
-			<p>{{ strings.intro.demo }}</p>
+			<h3>{{ strings.intro.businessHeading }}</h3>
+			<p>{{ strings.intro.businessNote }}</p>
+			<dl class="interview-page__details">
+				<div>
+					<dt>{{ strings.intro.businessLabel }}</dt>
+					<dd>{{ profileValue('businessName') }}</dd>
+				</div>
+				<div>
+					<dt>{{ strings.intro.locationLabel }}</dt>
+					<dd>{{ profileValue('municipality') }}</dd>
+				</div>
+			</dl>
+			<h3>{{ strings.intro.processingHeading }}</h3>
+			<p>{{ strings.intro.processing }}</p>
+			<h3>{{ strings.intro.researchHeading }}</h3>
+			<p>{{ strings.intro.research }}</p>
 			<button
 				class="button-primary"
 				type="button"
@@ -120,10 +154,20 @@
 			</button>
 		</section>
 
+		<!-- The consent gate comes before the widget: the agent conversation
+		     cannot begin, and the widget is neither offered nor loaded, until
+		     all three consents are given. -->
 		<section
 			v-else-if="flow.phase.value === 'consent'"
 			class="interview-page__section"
 		>
+			<p
+				v-if="flow.error.value !== null"
+				class="notice"
+				role="alert"
+			>
+				{{ errorText }}
+			</p>
 			<InterviewConsentGate
 				:strings="strings"
 				:starting="consentStarting"
@@ -132,16 +176,17 @@
 			/>
 		</section>
 
-		<template v-else-if="isWorkingPhase">
-			<div class="interview-page__status d-flex flex-wrap gap-3">
-				<InterviewTimer
-					:remaining-text="timer.remainingText.value"
-					:expired="timer.passed.value"
-					:announcement="timer.announcement.value"
-					:strings="strings"
-				/>
-			</div>
-
+		<template
+			v-else-if="
+				flow.phase.value === 'live' || flow.phase.value === 'ended'
+			"
+		>
+			<p
+				class="notice"
+				role="status"
+			>
+				{{ liveNotice }}
+			</p>
 			<p
 				v-if="flow.error.value !== null"
 				class="notice"
@@ -149,98 +194,77 @@
 			>
 				{{ errorText }}
 			</p>
-			<p
-				v-else-if="flow.draftRestored.value"
-				class="notice"
-			>
-				{{ strings.activeNotice.resumed }}
-			</p>
-			<p
-				v-else
-				class="notice"
-			>
-				{{ strings.activeNotice.entered }}
-			</p>
+
+			<!-- The widget is mounted only here, after consent and a
+			     successful live start. -->
+			<InterviewAgentWidget
+				v-if="flow.phase.value === 'live' && widgetReady"
+				class="interview-page__widget"
+				:agent-id="flow.availability.value?.agentId ?? ''"
+				:interview-id="flow.interview.value?.id ?? ''"
+				:language="locale"
+				:business-name="profileValue('businessName')"
+				:location="profileValue('municipality')"
+			/>
 
 			<div class="interview-page__columns">
 				<div class="interview-page__left">
-					<InterviewScriptPlayer
-						:strings="strings"
-						:script="scriptData"
-						:locale="locale"
-						:speech="speech"
-						:initial-index="revealedScriptCount"
-						@append="onScriptAppend"
-						@append-all="onScriptAppendAll"
-						@reset="flow.clearTranscript()"
-					/>
-
-					<InterviewCaptureControls
-						:capture="capture"
-						:strings="strings"
-						:deadline-ms="deadlineMs"
-						:disabled="flow.phase.value !== 'active'"
-					/>
-				</div>
-
-				<div class="interview-page__right">
-					<InterviewTranscriptEditor
-						v-model="transcriptModel"
-						:strings="strings"
-						:restored="flow.draftRestored.value"
-						:readonly="flow.phase.value === 'submitting'"
-						:show-validation="showValidation"
-					/>
-
 					<section
-						class="panel interview-page__submit"
-						aria-labelledby="interview-submit-heading"
+						class="panel interview-page__research"
+						aria-labelledby="interview-research-heading"
 					>
-						<h2 id="interview-submit-heading">
-							{{ strings.transcript.submitHeading }}
+						<h2 id="interview-research-heading">
+							{{ strings.research.heading }}
 						</h2>
-						<p class="interview-page__submit-hint">
-							{{ strings.transcript.submitHint }}
-						</p>
+						<p class="mb-1">{{ researchText }}</p>
+						<template v-if="researchCases.length > 0">
+							<h3>{{ strings.research.caseLabel }}</h3>
+							<ul class="interview-page__cases">
+								<li
+									v-for="(item, index) in researchCases"
+									:key="index"
+								>
+									{{
+										item.title
+										|| `${item.company} — ${item.solution}`
+									}}
+								</li>
+							</ul>
+						</template>
+					</section>
+					<div class="interview-page__actions">
 						<button
+							v-if="flow.phase.value === 'live'"
 							class="button-primary"
 							type="button"
-							:disabled="
-								flow.phase.value !== 'active'
-								|| !flow.transcriptCheck.value.ok
-							"
-							@click="onSubmit"
+							:disabled="ending"
+							@click="onEnd"
 						>
 							{{
-								flow.phase.value === 'submitting' ?
-									strings.transcript.submitting
-								:	strings.transcript.submitButton
+								ending ?
+									strings.live.ending
+								:	strings.live.endButton
 							}}
 						</button>
-					</section>
+						<template v-else>
+							<NuxtLink
+								to="/"
+								class="button-primary"
+							>
+								{{ strings.live.backHome }}
+							</NuxtLink>
+							<button
+								class="button-secondary"
+								type="button"
+								@click="onRestart"
+							>
+								{{ strings.live.checkAgain }}
+							</button>
+						</template>
+					</div>
 				</div>
 			</div>
 		</template>
-
-		<section
-			v-else-if="flow.phase.value === 'expired'"
-			class="panel interview-page__section"
-		>
-			<h2
-				id="interview-expired-heading"
-				tabindex="-1"
-			>
-				{{ strings.expired.heading }}
-			</h2>
-			<p>{{ strings.expired.body }}</p>
-			<button
-				class="button-primary"
-				type="button"
-				@click="onRestart"
-			>
-				{{ strings.expired.restartButton }}
-			</button>
-		</section>
 
 		<section
 			v-else-if="flow.phase.value === 'submitted'"
@@ -253,6 +277,13 @@
 				{{ strings.submitted.heading }}
 			</h2>
 			<p>{{ strings.submitted.body }}</p>
+			<p
+				v-if="assessmentText !== null"
+				class="interview-page__assessment"
+				role="status"
+			>
+				{{ assessmentText }}
+			</p>
 			<NuxtLink
 				v-if="flow.reportId.value !== null"
 				class="button-primary"
@@ -265,34 +296,29 @@
 </template>
 
 <script lang="ts" setup>
-	import { computed, nextTick, onMounted, ref, watch } from 'vue';
 	import {
-		createDraftStore,
-		type DraftStore,
-	} from '../utils/interview-draft.ts';
+		computed,
+		nextTick,
+		onBeforeUnmount,
+		onMounted,
+		ref,
+		watch,
+	} from 'vue';
 	import {
 		createInterviewClient,
 		type InterviewHttp,
 	} from '../utils/interview-api.ts';
-	import {
-		interviewScript,
-		type InterviewScriptData,
-	} from '../locales/interview-script.ts';
 	import type { ConsentsState } from '../utils/interview-consent.ts';
-	import InterviewCaptureControls from '../components/interview/InterviewCaptureControls.vue';
+	import InterviewAgentWidget from '../components/interview/InterviewAgentWidget.vue';
 	import InterviewConsentGate from '../components/interview/InterviewConsentGate.vue';
-	import InterviewDemoBadge from '../components/interview/InterviewDemoBadge.vue';
-	import InterviewScriptPlayer from '../components/interview/InterviewScriptPlayer.vue';
-	import InterviewTimer from '../components/interview/InterviewTimer.vue';
-	import InterviewTranscriptEditor from '../components/interview/InterviewTranscriptEditor.vue';
 	import type { SessionUser } from '../../shared/types/domain.ts';
 	import { createInterviewFlow } from '../composables/useInterviewFlow.ts';
 	import { interviewStrings } from '../locales/interview.ts';
-	import { parseDeadlineMs } from '../utils/interview-deadline.ts';
-	import { renderScriptTranscript } from '../utils/interview-transcript.ts';
-	import { useInterviewCapture } from '../composables/useInterviewCapture.ts';
-	import { useInterviewSpeech } from '../composables/useInterviewSpeech.ts';
-	import { useInterviewTimer } from '../composables/useInterviewTimer.ts';
+
+	// The widget embed is loaded only when the widget is about to mount —
+	// never on the consent or intro views.
+	const WIDGET_EMBED_URL =
+		'https://unpkg.com/@elevenlabs/convai-widget-embed@0.28.0/dist/index.js';
 
 	const { locale } = useAppLocale();
 	const { user, refreshSession } = useOwnerSession();
@@ -326,103 +352,43 @@
 		}
 	}
 
-	function browserDraftStore(): DraftStore | null {
-		if (typeof window === 'undefined') {
-			return null;
-		}
-		try {
-			return createDraftStore(window.sessionStorage);
-		} catch {
-			return null;
-		}
-	}
-
 	const client = createInterviewClient(
 		interviewHttp as unknown as InterviewHttp,
 	);
-	const flow = createInterviewFlow({
-		client,
-		draft: browserDraftStore(),
-	});
-	const timer = useInterviewTimer(flow.deadlineAt);
-	const capture = useInterviewCapture();
-	const speech = useInterviewSpeech();
+	const flow = createInterviewFlow({ client });
 
-	const showValidation = ref(false);
+	// The widget embed is loaded only while the conversation is live — after
+	// consent completes and the server issued the interview id. The getter
+	// must stay declared after `flow` (it reads the phase during SSR too).
+	useHead({
+		script: () =>
+			flow.phase.value === 'live' ?
+				[
+					{
+						src: WIDGET_EMBED_URL,
+						async: true,
+						tagPosition: 'bodyClose' as const,
+					},
+				]
+			:	[],
+	});
+
 	const consentStarting = ref(false);
+	const ending = ref(false);
 
-	// Hard cut: the timer flips first; capture, speech and the flow are
-	// stopped/rejected from here.
-	watch(timer.passed, (passed) => {
-		if (!passed) {
-			return;
-		}
-		capture.stop('deadline');
-		speech.cancel();
-		flow.markDeadlinePassed();
-	});
-
-	// Keep each announcement on screen long enough for screen readers.
-	watch(timer.announcement, (key) => {
-		if (key === null || typeof window === 'undefined') {
-			return;
-		}
-		window.setTimeout(() => {
-			timer.clearAnnouncement();
-		}, 1000);
-	});
-
-	const isWorkingPhase = computed(
+	const widgetReady = computed(
 		() =>
-			flow.phase.value === 'active' || flow.phase.value === 'submitting',
+			(flow.availability.value?.agentId ?? '').length > 0
+			&& (flow.interview.value?.id ?? '').length > 0,
 	);
 
-	const deadlineMs = computed(() => {
-		const value = flow.deadlineAt.value;
-		if (value === null) {
-			return null;
-		}
-		try {
-			return parseDeadlineMs(value);
-		} catch {
-			return null;
-		}
-	});
-
-	const showDemoBadge = computed(() => isWorkingPhase.value);
-
-	const scriptData = computed<InterviewScriptData | null>(() => {
+	function profileValue(key: 'businessName' | 'municipality'): string {
 		const sessionUser = user.value as SessionUser | null;
 		if (sessionUser === null || sessionUser.role !== 'owner') {
-			return null;
+			return '';
 		}
-		return interviewScript[locale.value];
-	});
-
-	/** How many script lines are already inside the transcript (prefix match). */
-	const revealedScriptCount = computed(() => {
-		const data = scriptData.value;
-		if (data === null) {
-			return 0;
-		}
-		const rendered = data.lines.map((line) =>
-			renderScriptTranscript([line], data.speakerLabels),
-		);
-		const current = flow.transcript.value;
-		let count = 0;
-		for (const line of rendered) {
-			if (!current.includes(line)) {
-				break;
-			}
-			count += 1;
-		}
-		return count;
-	});
-
-	const transcriptModel = computed({
-		get: () => flow.transcript.value,
-		set: (value: string) => flow.onTranscriptInput(value),
-	});
+		return sessionUser.profile[key];
+	}
 
 	const errorText = computed(() => {
 		const code = flow.error.value;
@@ -430,6 +396,67 @@
 			return '';
 		}
 		return strings.value.errors[code];
+	});
+
+	const resumed = ref(false);
+
+	const liveNotice = computed(() => {
+		if (flow.phase.value === 'ended') {
+			return strings.value.live.ended;
+		}
+		if (resumed.value) {
+			return strings.value.live.resumed;
+		}
+		return strings.value.live.inCall;
+	});
+
+	const researchCases = computed(() => flow.research.value?.cases ?? []);
+
+	const researchText = computed(() => {
+		const state = flow.research.value;
+		if (state === null) {
+			return strings.value.research.queued;
+		}
+		if (state.status === 'completed') {
+			const count = state.cases?.length ?? 0;
+			return count === 1 ?
+					strings.value.research.completedOne
+				:	strings.value.research.completed.replace(
+						'{count}',
+						String(count),
+					);
+		}
+		if (state.status === 'failed') {
+			return strings.value.research.failed;
+		}
+		if (state.status === 'idle') {
+			// Never queued: the research stack is not configured here.
+			return strings.value.research.notConnected;
+		}
+		return state.started ?
+				strings.value.research.started
+			:	strings.value.research.queued;
+	});
+
+	const assessmentText = computed(() => {
+		if (flow.phase.value !== 'submitted') {
+			return null;
+		}
+		const state = flow.assessment.value;
+		if (
+			state !== null
+			&& (state.status === 'failed' || state.status === 'idle')
+			&& flow.availability.value?.reportEngineAvailable === false
+		) {
+			return strings.value.assessment.unavailable;
+		}
+		if (state?.status === 'failed') {
+			return strings.value.assessment.failed;
+		}
+		if (flow.reportId.value !== null) {
+			return null;
+		}
+		return strings.value.assessment.preparing;
 	});
 
 	function onConsentChange(state: ConsentsState) {
@@ -441,6 +468,7 @@
 			return;
 		}
 		consentStarting.value = true;
+		resumed.value = false;
 		try {
 			await flow.start();
 		} finally {
@@ -448,26 +476,19 @@
 		}
 	}
 
-	function onScriptAppend(text: string) {
-		flow.appendTranscript(text);
-	}
-
-	function onScriptAppendAll(text: string) {
-		flow.appendTranscript(text);
-	}
-
-	async function onSubmit() {
-		showValidation.value = true;
-		if (!flow.transcriptCheck.value.ok) {
+	function onEnd() {
+		if (ending.value) {
 			return;
 		}
-		if (capture.recording.value) {
-			capture.stop('user');
-		}
-		await flow.submit();
+		ending.value = true;
+		// Unmounting the widget ends the call; the transcript arrives via
+		// the server-to-server webhook and the poll picks up the outcome.
+		flow.notifyCallEnded();
+		ending.value = false;
 	}
 
 	async function onRestart() {
+		resumed.value = true;
 		await flow.restart();
 	}
 
@@ -475,9 +496,58 @@
 		await flow.init();
 	}
 
+	// Poll while a conversation may still land: during the call, after the
+	// page's end action, and while the report is being prepared. The webhook
+	// (server-to-server) carries the transcript, so leaving the page is safe.
+	let pollTimer: ReturnType<typeof setTimeout> | null = null;
+	let pollGeneration = 0;
+
+	function stopPolling() {
+		pollGeneration += 1;
+		if (pollTimer !== null) {
+			clearTimeout(pollTimer);
+			pollTimer = null;
+		}
+	}
+
+	function startPolling() {
+		stopPolling();
+		const id = ++pollGeneration;
+		const tick = async () => {
+			if (id !== pollGeneration) {
+				return;
+			}
+			await flow.refresh();
+			if (id === pollGeneration) {
+				pollTimer = setTimeout(tick, 2500);
+			}
+		};
+		void tick();
+	}
+
+	watch(
+		() => flow.phase.value,
+		(phase) => {
+			if (
+				phase === 'live'
+				|| phase === 'ended'
+				|| phase === 'submitted'
+			) {
+				startPolling();
+				return;
+			}
+			stopPolling();
+		},
+	);
+
+	onBeforeUnmount(stopPolling);
+
 	onMounted(async () => {
 		await refreshSession();
 		await flow.notifySession((user.value as SessionUser | null) ?? null);
+		if (flow.phase.value === 'live') {
+			resumed.value = true;
+		}
 	});
 
 	// Focus management: move focus to each phase's heading on transition.
@@ -486,10 +556,10 @@
 		async (phase) => {
 			const targets: Partial<Record<string, string>> = {
 				consent: 'interview-consent-heading',
-				active: 'interview-transcript-heading',
 				submitted: 'interview-submitted-heading',
-				expired: 'interview-expired-heading',
 				unavailable: 'interview-unavailable-heading',
+				'agent-unavailable': 'interview-agent-unavailable-heading',
+				'demo-active': 'interview-demo-active-heading',
 				'signed-out': 'interview-signin-heading',
 				staff: 'interview-staff-heading',
 				intro: 'interview-intro-heading',
@@ -523,34 +593,58 @@
 		flex: 0 0 auto;
 	}
 
-	.interview-page__status {
-		margin-bottom: 1rem;
+	.interview-page__details {
+		display: grid;
+		gap: 0.5rem;
+
+		div {
+			display: flex;
+			gap: 0.75rem;
+		}
+
+		dt {
+			flex: 0 0 10rem;
+			font-weight: 600;
+		}
+
+		dd {
+			margin: 0;
+			overflow-wrap: anywhere;
+		}
+	}
+
+	.interview-page__widget {
+		margin-bottom: 1.5rem;
 	}
 
 	.interview-page__columns {
 		display: grid;
 		grid-template-columns: 1fr;
-		gap: 1.5rem;
 
 		@media (min-width: 992px) {
-			grid-template-columns: minmax(0, 5fr) minmax(0, 4fr);
-			align-items: start;
+			grid-template-columns: minmax(0, 5fr);
 		}
 	}
 
-	.interview-page__left,
-	.interview-page__right {
+	.interview-page__left {
 		display: flex;
 		flex-direction: column;
 		gap: 1.5rem;
 		min-width: 0;
 	}
 
-	.interview-page__other-business ul {
-		margin-bottom: 0;
+	.interview-page__actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
 	}
 
-	.interview-page__submit-hint {
+	.interview-page__cases {
+		margin-bottom: 0;
+		overflow-wrap: anywhere;
+	}
+
+	.interview-page__assessment {
 		font-size: 0.9rem;
 		opacity: 0.85;
 	}

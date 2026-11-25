@@ -1,6 +1,11 @@
 // Report row access. The report row is created synchronously at submit time;
 // generation is asynchronous via the pending status + worker (§8 override).
-import type { Locale, Report, ReportStatus } from '#shared/types/domain';
+import type {
+	Locale,
+	Report,
+	ReportGenerator,
+	ReportStatus,
+} from '#shared/types/domain';
 import { getDb } from '../utils/db';
 
 export type ReportRow = {
@@ -9,6 +14,7 @@ export type ReportRow = {
 	owner_id: string;
 	business_name: string;
 	locale: Locale;
+	generator: ReportGenerator;
 	status: ReportStatus;
 	content: string | null;
 	failure_reason: string | null;
@@ -82,14 +88,16 @@ export function insertReport(
 		ownerId: string;
 		businessName: string;
 		locale: string;
+		/** What produced the content once generation finishes. */
+		generator?: ReportGenerator;
 		createdAt: string;
 	},
 ): void {
 	db.prepare(
 		`INSERT INTO reports
-			(id, interview_id, voice_conversation_id, owner_id, business_name, locale, status, content, failure_reason,
+			(id, interview_id, voice_conversation_id, owner_id, business_name, locale, generator, status, content, failure_reason,
 			 consultation_requested_at, created_at, ready_at, generate_attempts, generate_after)
-		 VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, ?, NULL, 0, NULL)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, ?, NULL, 0, NULL)`,
 	).run(
 		input.id,
 		input.interviewId,
@@ -97,6 +105,7 @@ export function insertReport(
 		input.ownerId,
 		input.businessName,
 		input.locale,
+		input.generator ?? 'rule_based',
 		input.createdAt,
 	);
 }
@@ -151,6 +160,7 @@ export function toReport(row: ReportRow): Report {
 		ownerId: row.owner_id,
 		businessName: row.business_name,
 		locale: row.locale,
+		generator: row.generator,
 		status: row.status,
 		content: row.content,
 		failureReason: row.failure_reason,

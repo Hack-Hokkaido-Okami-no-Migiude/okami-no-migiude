@@ -10,6 +10,8 @@ export type ReportPageCopy = {
 	eyebrow: string;
 	loading: string;
 	statusLabels: { pending: string; ready: string; failed: string };
+	/** Badge for Dify-produced reports (never the rule-based label). */
+	generatorBadge: string;
 	viewingAsStaff: string;
 	metaMunicipality: string;
 	metaGeneratedAt: string;

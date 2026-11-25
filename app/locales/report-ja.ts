@@ -11,6 +11,7 @@ export const reportJa: ReportPageCopy = {
 		ready: '完成',
 		failed: '失敗',
 	},
+	generatorBadge: 'AI作成（Dify）',
 	viewingAsStaff: 'スタッフとして閲覧しています',
 	metaMunicipality: '地域',
 	metaGeneratedAt: '生成日時',

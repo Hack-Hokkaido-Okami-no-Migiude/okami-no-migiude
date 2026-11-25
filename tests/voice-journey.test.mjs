@@ -1,10 +1,12 @@
-// Voice journey: spawns the built Nitro server with loopback stubs for the
-// ElevenLabs token endpoint and the Linkup research API (via the
-// ELEVENLABS_API_BASE_URL / LINKUP_API_BASE_URL QA overrides) and exercises
-// the voice chat surface end to end: the config gate, consented session
-// start with profile intake, background research through the worker, the
-// supersede rule, and both ElevenLabs webhooks. No HTTP test backdoors:
-// lifecycle details are read from the synthetic SQLite data directly.
+// Voice-surface retirement journey: spawns the built Nitro server with
+// loopback stubs for the ElevenLabs token endpoint, the Linkup research API
+// and the Dify workflow run (via the ELEVENLABS_API_BASE_URL /
+// LINKUP_API_BASE_URL / DIFY_API_BASE_URL QA overrides). Proves that after
+// the interview consolidation the old voice-session API refuses NEW
+// conversations (410 superseded) while webhook processing, background
+// research and the Dify assessment keep working for conversations that
+// already existed. No HTTP test backdoors: lifecycle details are read from
+// the synthetic SQLite data directly.
 // Run: node --test tests/voice-journey.test.mjs   (needs `npm run build`)
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -108,6 +110,8 @@ const EXPECTED_CASES = [
 		sourceUrls: ['https://example.test/ryokan-pricing'],
 	},
 ];
+
+const LEGACY_CONVERSATION_ID = 'conv_legacy_1';
 
 const dataDir = path.join(
 	repoRoot,
@@ -282,16 +286,44 @@ function withDb(dir, fn) {
 	}
 }
 
-function voiceRows(dir) {
-	return withDb(dir, (db) =>
-		db
-			.prepare(
-				`SELECT conversation_id, research_status, research_task_id,
-				        transcript IS NOT NULL AS has_transcript, business
-				 FROM voice_sessions ORDER BY created_at, conversation_id`,
-			)
-			.all(),
-	);
+function ownerUserId(dir, email) {
+	return withDb(dir, (db) => {
+		const row = db
+			.prepare('SELECT id FROM users WHERE email = ?')
+			.get(email);
+		if (!row) {
+			throw new Error(`no user row for ${email}`);
+		}
+		return row.id;
+	});
+}
+
+/**
+ * Seeds a pre-existing voice session directly into the SQLite database: the
+ * retirement removed the API path that created new conversations, so the
+ * "existing conversations keep working" contract is exercised from a row
+ * that predates the retirement.
+ */
+function seedLegacyVoiceSession(dir, ownerId) {
+	withDb(dir, (db) => {
+		db.prepare(
+			`INSERT INTO voice_sessions
+				(conversation_id, owner_id, consent_at, report_language, business,
+				 research_status, research_task_id, research_deadline, research_poll_at,
+				 research_cases, transcript, created_at)
+			 VALUES (?, ?, ?, 'ja', ?, 'queued', NULL, ?, NULL, NULL, NULL, ?)`,
+		).run(
+			LEGACY_CONVERSATION_ID,
+			ownerId,
+			new Date().toISOString(),
+			JSON.stringify({
+				businessName: '湯の花旅館',
+				location: 'ニセコ町',
+			}),
+			Date.now() + 10 * 60_000,
+			new Date().toISOString(),
+		);
+	});
 }
 
 function signWebhook(
@@ -309,10 +341,10 @@ function signWebhook(
 
 /**
  * Loopback stub for the three provider APIs: ElevenLabs tokens, the Linkup
- * research API and the Dify workflow run. The first research call returns a
- * task that completes immediately, every later call a task that stays
- * pending forever — enough to drive the completion, supersede and failure
- * paths deterministically.
+ * research API and the Dify workflow run. The in-call research call
+ * completes immediately; the post-call deep pass (recognisable by its
+ * reasoning depth) also completes immediately — enough to drive the
+ * research and assessment paths deterministically.
  */
 function startProviderStub() {
 	const state = {
@@ -357,18 +389,12 @@ function startProviderStub() {
 					// Malformed body: fall through to the in-call branches.
 				}
 				// The post-call deep pass is recognisable by its reasoning
-				// depth and completes immediately with the deep-pass cases.
+				// depth and completes immediately with the dossier.
 				if (parsed.reasoningDepth === 'XL') {
 					respond(200, { id: 'task_deep' });
 					return;
 				}
-				// Call #2 stays pending forever (drives the supersede path);
-				// every other in-call call completes immediately.
-				const taskId =
-					state.researchRequests.length === 2 ?
-						'task_wait'
-					:	'task_ok';
-				respond(200, { id: taskId });
+				respond(200, { id: 'task_ok' });
 				return;
 			}
 			const pollMatch = /^\/v1\/research\/([^/]+)$/.exec(url.pathname);
@@ -384,8 +410,6 @@ function startProviderStub() {
 						status: 'completed',
 						output: DEEP_RESEARCH_DOSSIER,
 					});
-				} else if (taskId === 'task_wait') {
-					respond(200, { status: 'pending' });
 				} else {
 					respond(500, { detail: 'unknown task' });
 				}
@@ -480,7 +504,7 @@ async function signupOwner(baseUrl, email) {
 }
 
 test(
-	'voice is unavailable without credentials',
+	'the retired voice surface is unavailable without credentials',
 	{ timeout: 120000 },
 	async () => {
 		assert.equal(
@@ -501,7 +525,12 @@ test(
 				},
 			);
 			expectStatus('config (unconfigured)', config, 200);
-			assert.deepEqual(config.json, { available: false });
+			assert.deepEqual(config.json, {
+				available: false,
+				agentAvailable: false,
+				reportEngineAvailable: false,
+				agentId: '',
+			});
 
 			const anonymous = await request(
 				server.baseUrl,
@@ -517,6 +546,7 @@ test(
 			);
 
 			const jar = await signupOwner(server.baseUrl, OWNER_A.email);
+			// New conversations are refused even when nothing is configured.
 			const start = await request(
 				server.baseUrl,
 				'POST',
@@ -526,11 +556,11 @@ test(
 					jar,
 				},
 			);
-			expectStatus('start voice session (unconfigured)', start, 503);
+			expectStatus('start voice session (unconfigured)', start, 410);
 			expectErrorCode(
 				'start voice session (unconfigured)',
 				start,
-				'voice_unavailable',
+				'superseded',
 			);
 
 			const research = await request(
@@ -583,7 +613,7 @@ test(
 );
 
 test(
-	'voice journey: consent, profile intake, research, webhooks',
+	'existing voice conversations keep processing after the retirement',
 	{ timeout: 300000 },
 	async () => {
 		assert.equal(
@@ -605,7 +635,7 @@ test(
 			},
 		});
 		try {
-			console.log('## step: voice config reports available');
+			console.log('## step: voice config reports the flags');
 			const config = await request(
 				server.baseUrl,
 				'GET',
@@ -613,40 +643,19 @@ test(
 				{ origin: null },
 			);
 			expectStatus('config (configured)', config, 200);
-			assert.deepEqual(config.json, { available: true });
+			assert.deepEqual(config.json, {
+				available: true,
+				agentAvailable: true,
+				reportEngineAvailable: true,
+				agentId: VOICE_ENV.ELEVENLABS_AGENT_ID,
+			});
 
 			const jar = newCookieJar();
 			const staffJar = newCookieJar();
 			await signupOwnerWith(server.baseUrl, jar);
 			await loginStaff(server.baseUrl, staffJar);
 
-			console.log('## step: consent validation');
-			const missingConsent = await request(
-				server.baseUrl,
-				'POST',
-				'/api/voice/sessions',
-				{ body: {}, jar },
-			);
-			expectStatus('start without consent', missingConsent, 400);
-			expectErrorCode(
-				'start without consent',
-				missingConsent,
-				'validation',
-			);
-
-			const falseConsent = await request(
-				server.baseUrl,
-				'POST',
-				'/api/voice/sessions',
-				{ body: { consent: false }, jar },
-			);
-			expectStatus('start with consent false', falseConsent, 400);
-			expectErrorCode(
-				'start with consent false',
-				falseConsent,
-				'validation',
-			);
-
+			console.log('## step: new conversations are refused');
 			const staffStart = await request(
 				server.baseUrl,
 				'POST',
@@ -660,27 +669,46 @@ test(
 				'forbidden',
 			);
 
-			console.log('## step: session 1 starts with profile intake');
+			const rejected = await request(
+				server.baseUrl,
+				'POST',
+				'/api/voice/sessions',
+				{ body: { consent: true }, jar },
+			);
+			expectStatus('new voice session is refused', rejected, 410);
+			expectErrorCode(
+				'new voice session is refused',
+				rejected,
+				'superseded',
+			);
+
+			const rejectedWithoutConsent = await request(
+				server.baseUrl,
+				'POST',
+				'/api/voice/sessions',
+				{ body: {}, jar },
+			);
+			expectStatus(
+				'the refusal does not depend on the payload',
+				rejectedWithoutConsent,
+				410,
+			);
+
+			console.log('## step: the pre-existing conversation keeps working');
 			const emptyCurrent = await request(
 				server.baseUrl,
 				'GET',
 				'/api/voice/sessions/current',
 				{ jar },
 			);
-			expectStatus('current before any session', emptyCurrent, 200);
+			expectStatus(
+				'current before the legacy session',
+				emptyCurrent,
+				200,
+			);
 			assert.deepEqual(emptyCurrent.json, { session: null });
 
-			const start1 = await request(
-				server.baseUrl,
-				'POST',
-				'/api/voice/sessions',
-				{ body: { consent: true }, jar },
-			);
-			expectStatus('start session 1', start1, 201);
-			assert.deepEqual(start1.json, {
-				conversationId: 'conv_stub_1',
-				conversationToken: 'tok_1',
-			});
+			seedLegacyVoiceSession(dir, ownerUserId(dir, OWNER_A.email));
 
 			const current1 = await request(
 				server.baseUrl,
@@ -688,8 +716,11 @@ test(
 				'/api/voice/sessions/current',
 				{ jar },
 			);
-			expectStatus('current after session 1', current1, 200);
-			assert.equal(current1.json.session.conversationId, 'conv_stub_1');
+			expectStatus('current after seeding', current1, 200);
+			assert.equal(
+				current1.json.session.conversationId,
+				LEGACY_CONVERSATION_ID,
+			);
 			assert.equal(current1.json.session.reportLanguage, 'ja');
 			assert.equal(current1.json.session.transcriptRecorded, false);
 			assert.equal(current1.json.session.transcript, null);
@@ -698,8 +729,8 @@ test(
 				location: 'ニセコ町',
 			});
 
-			console.log('## step: worker completes session 1 research');
-			await pollUntil('session 1 research completed', async () => {
+			console.log('## step: worker completes the legacy research');
+			await pollUntil('legacy research completed', async () => {
 				const current = await request(
 					server.baseUrl,
 					'GET',
@@ -729,82 +760,13 @@ test(
 			assert.equal(researchBody.mode, 'research');
 			assert.equal(typeof researchBody.structuredOutputSchema, 'string');
 
-			console.log('## step: session 2 research stays pending');
-			const start2 = await request(
-				server.baseUrl,
-				'POST',
-				'/api/voice/sessions',
-				{ body: { consent: true }, jar },
-			);
-			expectStatus('start session 2', start2, 201);
-			assert.equal(start2.json.conversationId, 'conv_stub_2');
-			await pollUntil('session 2 research polling', async () => {
-				const current = await request(
-					server.baseUrl,
-					'GET',
-					'/api/voice/sessions/current',
-					{ jar },
-				);
-				return (
-					current.json.session?.research.status === 'polling'
-					&& current.json.session.research.started === true
-				);
-			});
-
-			console.log(
-				'## step: session 3 supersedes the abandoned session 2',
-			);
-			const start3 = await request(
-				server.baseUrl,
-				'POST',
-				'/api/voice/sessions',
-				{ body: { consent: true }, jar },
-			);
-			expectStatus('start session 3', start3, 201);
-			assert.equal(start3.json.conversationId, 'conv_stub_3');
-			await pollUntil('session 3 research completed', async () => {
-				const current = await request(
-					server.baseUrl,
-					'GET',
-					'/api/voice/sessions/current',
-					{ jar },
-				);
-				return (
-					current.json.session?.research.status === 'completed'
-					&& current.json.session.conversationId === 'conv_stub_3'
-				);
-			});
-			const rows = voiceRows(dir);
-			assert.deepEqual(
-				rows.map((row) => [
-					row.conversation_id,
-					row.research_status,
-					Boolean(row.has_transcript),
-				]),
-				[
-					['conv_stub_1', 'completed', false],
-					['conv_stub_2', 'failed', false],
-					['conv_stub_3', 'completed', false],
-				],
-			);
-			assert.deepEqual(
-				JSON.parse(
-					rows.find((row) => row.conversation_id === 'conv_stub_1')
-						.business,
-				),
-				{
-					businessName: '湯の花旅館',
-					location: 'ニセコ町',
-				},
-			);
-
 			console.log('## step: start-research webhook tool');
 			const noAuth = await request(
 				server.baseUrl,
 				'POST',
 				'/api/voice/elevenlabs/start-research',
 				{
-					body: webhookResearchBody('conv_stub_3'),
+					body: webhookResearchBody(LEGACY_CONVERSATION_ID),
 					origin: null,
 				},
 			);
@@ -820,7 +782,7 @@ test(
 				'POST',
 				'/api/voice/elevenlabs/start-research',
 				{
-					body: webhookResearchBody('conv_stub_3'),
+					body: webhookResearchBody(LEGACY_CONVERSATION_ID),
 					headers: { authorization: 'Bearer not-the-secret' },
 					origin: null,
 				},
@@ -881,7 +843,7 @@ test(
 				'POST',
 				'/api/voice/elevenlabs/start-research',
 				{
-					body: webhookResearchBody('conv_stub_3'),
+					body: webhookResearchBody(LEGACY_CONVERSATION_ID),
 					headers: {
 						authorization: `Bearer ${VOICE_ENV.RESEARCH_TOOL_SECRET}`,
 					},
@@ -907,7 +869,7 @@ test(
 					message: '従業員が足りなくて、予約を手で写しています。',
 				},
 			];
-			const postCallBody = (conversationId, agentId) =>
+			const postCallBody = (conversationId, agentId, extraData = {}) =>
 				Buffer.from(
 					JSON.stringify({
 						type: 'post_call_transcription',
@@ -915,6 +877,7 @@ test(
 							agent_id: agentId,
 							conversation_id: conversationId,
 							transcript: transcriptTurns,
+							...extraData,
 						},
 					}),
 					'utf8',
@@ -923,7 +886,10 @@ test(
 				server.baseUrl,
 				'/api/voice/elevenlabs/post-call',
 				{ 'content-type': 'application/json' },
-				postCallBody('conv_stub_3', VOICE_ENV.ELEVENLABS_AGENT_ID),
+				postCallBody(
+					LEGACY_CONVERSATION_ID,
+					VOICE_ENV.ELEVENLABS_AGENT_ID,
+				),
 			);
 			expectStatus('post-call without a signature', unsigned, 401);
 			expectErrorCode(
@@ -933,7 +899,7 @@ test(
 			);
 
 			const badSecretRaw = postCallBody(
-				'conv_stub_3',
+				LEGACY_CONVERSATION_ID,
 				VOICE_ENV.ELEVENLABS_AGENT_ID,
 			);
 			const badSecret = await requestRaw(
@@ -952,7 +918,7 @@ test(
 			expectStatus('post-call with a wrong secret', badSecret, 401);
 
 			const validRaw = postCallBody(
-				'conv_stub_3',
+				LEGACY_CONVERSATION_ID,
 				VOICE_ENV.ELEVENLABS_AGENT_ID,
 			);
 			const valid = await requestRaw(
@@ -994,7 +960,7 @@ test(
 					type: 'post_call_transcription',
 					data: {
 						agent_id: VOICE_ENV.ELEVENLABS_AGENT_ID,
-						conversation_id: 'conv_stub_3',
+						conversation_id: LEGACY_CONVERSATION_ID,
 						transcript: [
 							...transcriptTurns,
 							{ role: 'user', message: '追加の発言' },
@@ -1028,7 +994,10 @@ test(
 				'the first transcript wins on replay',
 			);
 
-			const otherAgentRaw = postCallBody('conv_stub_3', 'agent_other');
+			const otherAgentRaw = postCallBody(
+				LEGACY_CONVERSATION_ID,
+				'agent_other',
+			);
 			const otherAgent = await requestRaw(
 				server.baseUrl,
 				'/api/voice/elevenlabs/post-call',
@@ -1104,7 +1073,7 @@ test(
 							.prepare(
 								'SELECT assessment_status, assessment_attempts FROM voice_sessions WHERE conversation_id = ?',
 							)
-							.get('conv_stub_3');
+							.get(LEGACY_CONVERSATION_ID);
 					});
 					return (
 						row.assessment_status === 'queued'
@@ -1148,7 +1117,7 @@ test(
 				stub.state.assessmentRequests[0].body,
 			);
 			assert.equal(assessmentBody.response_mode, 'streaming');
-			assert.equal(assessmentBody.user, 'conv_stub_3');
+			assert.equal(assessmentBody.user, LEGACY_CONVERSATION_ID);
 			assert.equal(assessmentBody.inputs.report_language, 'Japanese');
 			assert.match(
 				assessmentBody.inputs.transcript,
@@ -1172,9 +1141,9 @@ test(
 
 			// The deep pass ran at the heaviest depth as a sourced dossier:
 			// transcript-informed query, no case-list suffix, no schema.
-			// Requests 1–3 are the in-call passes (sessions 1–3).
-			assert.equal(stub.state.researchRequests.length, 4);
-			const deepRequest = JSON.parse(stub.state.researchRequests[3]);
+			// Request 1 is the in-call pass, request 2 the deep pass.
+			assert.equal(stub.state.researchRequests.length, 2);
+			const deepRequest = JSON.parse(stub.state.researchRequests[1]);
 			assert.equal(deepRequest.reasoningDepth, 'XL');
 			assert.equal(deepRequest.outputType, 'sourcedAnswer');
 			assert.equal(deepRequest.structuredOutputSchema, undefined);
@@ -1191,7 +1160,7 @@ test(
 					.prepare(
 						'SELECT assessment_status, assessment_attempts, assessment_report_id FROM voice_sessions WHERE conversation_id = ?',
 					)
-					.get('conv_stub_3');
+					.get(LEGACY_CONVERSATION_ID);
 				assert.equal(session.assessment_status, 'completed');
 				// attempts counts failed runs (it drives the backoff): one
 				// failed first attempt, then the successful retry.
@@ -1200,10 +1169,13 @@ test(
 					.prepare(
 						'SELECT * FROM reports WHERE voice_conversation_id = ?',
 					)
-					.get('conv_stub_3');
+					.get(LEGACY_CONVERSATION_ID);
 				assert.ok(report);
 				assert.equal(report.interview_id, null);
 				assert.equal(report.status, 'ready');
+				// Voice-sourced reports are Dify output and must never carry
+				// the rule-based draft label.
+				assert.equal(report.generator, 'dify');
 				assert.match(report.content, /経営相談レポート/);
 				assert.equal(session.assessment_report_id, report.id);
 				assert.equal(

@@ -61,13 +61,6 @@
 							{{ t.nav.interview }}
 						</NuxtLink>
 						<NuxtLink
-							v-if="user.role === 'owner'"
-							to="/voice"
-							class="button-secondary"
-						>
-							{{ t.nav.voice }}
-						</NuxtLink>
-						<NuxtLink
 							v-else
 							to="/staff"
 							class="button-secondary"

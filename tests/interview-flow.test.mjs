@@ -1,462 +1,281 @@
-// Unit tests for the interview flow state machine: consent gating, start,
-// resume, deadline hard cut, submit and restart against a fake http client.
+// Unit tests for the interview flow state machine of the agent surface:
+// consent-before-start, the honest agent-unavailable state, live start,
+// resume, the post-call monitoring transitions and the demo-active guard.
+// The machine is pure: the API client and the session user are injected, so
+// no browser build is required.
 import assert from 'node:assert/strict';
-import { createDraftStore } from '../app/utils/interview-draft.ts';
-import { createInterviewClient } from '../app/utils/interview-api.ts';
-import { createInterviewFlow } from '../app/composables/useInterviewFlow.ts';
 import test from 'node:test';
 
-const DEADLINE = '2026-11-25T09:00:00.000Z';
-const DEADLINE_MS = Date.parse(DEADLINE);
+import { ApiFailure } from '../app/utils/interview-api.ts';
+import { createInterviewFlow } from '../app/composables/useInterviewFlow.ts';
+import { emptyConsents } from '../app/utils/interview-consent.ts';
 
-const ACTIVE = {
-	id: 'interview-1',
+const OWNER = { id: 'u1', role: 'owner', profile: {} };
+
+const LIVE_INTERVIEW = {
+	id: 'interview-live-1',
 	status: 'active',
-	deadlineAt: DEADLINE,
+	deadlineAt: '2026-11-25T09:00:00.000Z',
+	mode: 'live',
+	research: { status: 'queued', started: false, cases: null },
+	assessment: { status: 'idle', reportId: null },
+};
+
+const DEMO_INTERVIEW = {
+	id: 'interview-demo-1',
+	status: 'active',
+	deadlineAt: '2026-11-25T09:00:00.000Z',
 	mode: 'demo',
 };
-const SUBMITTED = {
-	id: 'interview-1',
+
+const SUBMITTED_LIVE = {
+	...LIVE_INTERVIEW,
 	status: 'submitted',
-	deadlineAt: DEADLINE,
-	mode: 'demo',
+	assessment: { status: 'completed', reportId: 'report-1' },
 };
 
-function fakeHttp() {
-	const calls = [];
-	const queue = [];
-	async function http(path, init) {
-		calls.push({
-			path,
-			method: init.method,
-			body: init.body === undefined ? null : init.body,
-		});
-		const next = queue.shift();
-		if (!next) {
-			throw new Error(`unexpected call: ${init.method} ${path}`);
-		}
-		return typeof next === 'function' ? next(calls.at(-1)) : next;
-	}
-	http.calls = calls;
-	http.enqueue = (response) => {
-		queue.push(response);
-	};
-	return http;
-}
+const AGENT_AVAILABLE = {
+	available: true,
+	agentAvailable: true,
+	reportEngineAvailable: true,
+	agentId: 'agent_stub',
+};
 
-function memoryStorage() {
-	const map = new Map();
+const AGENT_UNAVAILABLE = {
+	available: false,
+	agentAvailable: false,
+	reportEngineAvailable: false,
+	agentId: '',
+};
+
+/** A scripted InterviewClient double: each method maps a key to a value. */
+function fakeClient({ availability, current, start, currentQueue = [] }) {
+	let currentCalls = 0;
+	let firstCurrent = true;
 	return {
-		getItem: (key) => (map.has(key) ? map.get(key) : null),
-		setItem: (key, value) => {
-			map.set(key, value);
+		async availability() {
+			if (availability instanceof ApiFailure) {
+				throw availability;
+			}
+			return availability ?? AGENT_AVAILABLE;
 		},
-		removeItem: (key) => {
-			map.delete(key);
+		async current() {
+			// The first call answers with `current`; later calls consume the
+			// scripted queue (used to step through poll responses).
+			if (!firstCurrent && currentQueue.length > 0) {
+				const next = currentQueue.shift();
+				if (next instanceof ApiFailure) {
+					throw next;
+				}
+				currentCalls += 1;
+				return next;
+			}
+			firstCurrent = false;
+			if (current instanceof ApiFailure) {
+				throw current;
+			}
+			currentCalls += 1;
+			return current ?? { interview: null, reportId: null };
 		},
+		async start() {
+			if (start instanceof ApiFailure) {
+				throw start;
+			}
+			if (typeof start === 'function') {
+				return await start();
+			}
+			return start ?? { interview: LIVE_INTERVIEW };
+		},
+		currentCallCount: () => currentCalls,
 	};
 }
 
-function buildFlow({ nowMs = DEADLINE_MS - 3_600_000, storage } = {}) {
-	const http = fakeHttp();
-	const clock = { nowMs };
-	const flow = createInterviewFlow({
-		client: createInterviewClient(http),
-		now: () => clock.nowMs,
-		draft: createDraftStore(storage ?? memoryStorage()),
+test('an unconfigured agent shows the honest unavailable state', async () => {
+	const client = fakeClient({ availability: AGENT_UNAVAILABLE });
+	const flow = createInterviewFlow({ client });
+	await flow.notifySession(OWNER);
+	assert.equal(flow.phase.value, 'agent-unavailable');
+	assert.equal(flow.availability.value?.agentAvailable, false);
+
+	// The honest state is not retryable via refresh(): the deployment has no
+	// agent, so nothing polls and no further current fetches happen (the
+	// one init-time fetch checks for an already-finished interview first).
+	const currentCallsAfterInit = client.currentCallCount();
+	await flow.refresh();
+	await flow.refresh();
+	assert.equal(flow.phase.value, 'agent-unavailable');
+	assert.equal(client.currentCallCount(), currentCallsAfterInit);
+});
+
+test('an availability probe failure keeps the generic retryable state', async () => {
+	const client = fakeClient({
+		availability: new ApiFailure(0, 'network'),
 	});
-	return { flow, http, clock, setNow: (ms) => (clock.nowMs = ms) };
-}
+	const flow = createInterviewFlow({ client });
+	await flow.notifySession(OWNER);
+	assert.equal(flow.phase.value, 'unavailable');
+	assert.equal(flow.availability.value, null);
+});
 
-function currentResponse(interview, reportId) {
-	return {
-		status: 200,
-		json: { interview, reportId: reportId ?? null },
-	};
-}
+test('a signed-out or staff session routes before any probe', async () => {
+	const client = fakeClient({});
+	const flow = createInterviewFlow({ client });
+	await flow.notifySession(null);
+	assert.equal(flow.phase.value, 'signed-out');
+	await flow.notifySession({ id: 's1', role: 'staff', profile: {} });
+	assert.equal(flow.phase.value, 'staff');
+	// No availability probe and no current call happened.
+	assert.equal(client.currentCallCount(), 0);
+});
 
-test('init: no interview → intro with a fresh consent gate', async () => {
-	const { flow, http } = buildFlow();
-	http.enqueue(currentResponse(null));
-	await flow.init();
+test('the widget never starts before the consent gate completes', async () => {
+	let started = 0;
+	const client = fakeClient({
+		start: async () => {
+			started += 1;
+			return { interview: LIVE_INTERVIEW };
+		},
+	});
+	const flow = createInterviewFlow({ client });
+	await flow.notifySession(OWNER);
 	assert.equal(flow.phase.value, 'intro');
-	assert.equal(flow.interview.value, null);
-	assert.deepEqual(flow.consents.value, {
-		processing: false,
-		privacy: false,
-		staff: false,
+
+	// start() is ignored outside the consent phase — even with consents set.
+	flow.consents.value = { processing: true, privacy: true, staff: true };
+	await flow.start();
+	assert.equal(started, 0);
+	assert.equal(flow.phase.value, 'intro');
+
+	flow.beginConsent();
+	assert.equal(flow.phase.value, 'consent');
+
+	// Consents missing: the gate cannot send.
+	flow.consents.value = emptyConsents();
+	await flow.start();
+	assert.equal(started, 0);
+	assert.equal(flow.phase.value, 'consent');
+
+	// All three consents given: exactly one live start fires.
+	flow.consents.value = { processing: true, privacy: true, staff: true };
+	await flow.start();
+	assert.equal(started, 1);
+	assert.equal(flow.phase.value, 'live');
+	assert.equal(flow.interview.value?.id, 'interview-live-1');
+	assert.equal(flow.research.value?.status, 'queued');
+	assert.equal(flow.assessment.value?.status, 'idle');
+});
+
+test('mode_unavailable at start falls back to the honest unavailable state', async () => {
+	const client = fakeClient({
+		start: new ApiFailure(409, 'mode_unavailable'),
+		current: { interview: null, reportId: null },
 	});
-	assert.equal(flow.canStart.value, false);
+	const flow = createInterviewFlow({ client });
+	await flow.notifySession(OWNER);
+	flow.beginConsent();
+	flow.consents.value = { processing: true, privacy: true, staff: true };
+	await flow.start();
+	assert.equal(flow.phase.value, 'agent-unavailable');
 });
 
-test('init: active interview resumes with the saved draft', async () => {
-	const storage = memoryStorage();
-	storage.setItem('interview-draft:interview-1', 'saved draft');
-	const { flow, http } = buildFlow({ storage });
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-	assert.equal(flow.phase.value, 'active');
-	assert.equal(flow.transcript.value, 'saved draft');
-	assert.equal(flow.deadlineAt.value, DEADLINE);
-});
-
-test('init: submitted interview shows the report state', async () => {
-	const { flow, http } = buildFlow();
-	http.enqueue(currentResponse(SUBMITTED, 'report-9'));
-	await flow.init();
+test('conflicts at start reload the current interview', async () => {
+	const client = fakeClient({
+		start: new ApiFailure(409, 'already_submitted'),
+		current: { interview: null, reportId: null },
+		currentQueue: [{ interview: SUBMITTED_LIVE, reportId: 'report-1' }],
+	});
+	const flow = createInterviewFlow({ client });
+	await flow.notifySession(OWNER);
+	flow.beginConsent();
+	flow.consents.value = { processing: true, privacy: true, staff: true };
+	await flow.start();
 	assert.equal(flow.phase.value, 'submitted');
-	assert.equal(flow.reportId.value, 'report-9');
+	assert.equal(flow.reportId.value, 'report-1');
+	assert.equal(flow.assessment.value?.reportId, 'report-1');
 });
 
-test('init: load failure lands in the retryable unavailable state', async () => {
-	const { flow, http } = buildFlow();
-	http.enqueue({ status: 0, json: null, networkError: true });
-	await flow.init();
-	assert.equal(flow.phase.value, 'unavailable');
-	// A later retry can recover.
-	http.enqueue(currentResponse(null));
-	await flow.init();
-	assert.equal(flow.phase.value, 'intro');
-});
-
-test('retrying after a load failure keeps the saved draft', async () => {
-	const storage = memoryStorage();
-	storage.setItem('interview-draft:interview-1', 'kept draft');
-	const { flow, http } = buildFlow({ storage });
-	http.enqueue({ status: 0, json: null, networkError: true });
-	await flow.init();
-	assert.equal(flow.phase.value, 'unavailable');
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-	assert.equal(flow.phase.value, 'active');
-	assert.equal(flow.transcript.value, 'kept draft');
-	assert.equal(flow.draftRestored.value, true);
-});
-
-test('start is refused until every disclosure is acknowledged', async () => {
-	const { flow, http } = buildFlow();
-	http.enqueue(currentResponse(null));
-	await flow.init();
-	http.enqueue({ status: 201, json: { interview: ACTIVE } });
-	await flow.start();
-	assert.deepEqual(http.calls, [
-		{ path: '/api/interviews/current', method: 'GET', body: null },
-	]);
-	assert.equal(flow.phase.value, 'consent');
-
-	flow.consents.value = {
-		processing: true,
-		privacy: true,
-		staff: false,
-	};
-	await flow.start();
-	assert.equal(http.calls.length, 1, 'no start call yet');
-	assert.equal(flow.phase.value, 'consent');
-
-	flow.consents.value = {
-		processing: true,
-		privacy: true,
-		staff: true,
-	};
-	await flow.start();
-	assert.deepEqual(http.calls[1], {
-		path: '/api/interviews/start',
-		method: 'POST',
-		body: { consent: true, mode: 'demo' },
+test('an active live interview resumes in the call view', async () => {
+	const client = fakeClient({
+		current: { interview: LIVE_INTERVIEW, reportId: null },
 	});
-	assert.equal(flow.phase.value, 'active');
-	assert.equal(flow.deadlineAt.value, DEADLINE);
+	const flow = createInterviewFlow({ client });
+	await flow.notifySession(OWNER);
+	assert.equal(flow.phase.value, 'live');
+	assert.equal(flow.interview.value?.mode, 'live');
+});
+
+test('an active demo interview is reported honestly, not driven', async () => {
+	const client = fakeClient({
+		current: { interview: DEMO_INTERVIEW, reportId: null },
+	});
+	const flow = createInterviewFlow({ client });
+	await flow.notifySession(OWNER);
+	assert.equal(flow.phase.value, 'demo-active');
+});
+
+test('the poll follows research, submission and the report', async () => {
+	const client = fakeClient({
+		current: { interview: LIVE_INTERVIEW, reportId: null },
+		currentQueue: [
+			{
+				interview: {
+					...LIVE_INTERVIEW,
+					research: {
+						status: 'completed',
+						started: true,
+						cases: [{ title: 'case' }],
+					},
+				},
+				reportId: null,
+			},
+			{ interview: SUBMITTED_LIVE, reportId: 'report-1' },
+		],
+	});
+	const flow = createInterviewFlow({ client });
+	await flow.notifySession(OWNER);
+	assert.equal(flow.phase.value, 'live');
+
+	await flow.refresh();
+	assert.equal(flow.phase.value, 'live');
+	assert.equal(flow.research.value?.status, 'completed');
+	assert.deepEqual(flow.research.value?.cases, [{ title: 'case' }]);
+
+	await flow.refresh();
+	assert.equal(flow.phase.value, 'submitted');
+	assert.equal(flow.reportId.value, 'report-1');
+
+	// Polls outside the monitoring phases are ignored entirely.
+	flow.phase.value = 'intro';
+	await flow.refresh();
+	assert.equal(client.currentCallCount(), 3);
+});
+
+test('refresh swallows network blips instead of dropping the call view', async () => {
+	const client = fakeClient({
+		current: { interview: LIVE_INTERVIEW, reportId: null },
+		currentQueue: [new ApiFailure(0, 'network')],
+	});
+	const flow = createInterviewFlow({ client });
+	await flow.notifySession(OWNER);
+	assert.equal(flow.phase.value, 'live');
+	await flow.refresh();
+	assert.equal(flow.phase.value, 'live');
 	assert.equal(flow.error.value, null);
 });
 
-test('start 409 already_submitted falls back to the submitted state', async () => {
-	const { flow, http } = buildFlow();
-	http.enqueue(currentResponse(null));
-	await flow.init();
-	flow.consents.value = { processing: true, privacy: true, staff: true };
-	http.enqueue({ status: 409, json: { error: 'already_submitted' } });
-	http.enqueue(currentResponse(SUBMITTED, 'report-2'));
-	await flow.start();
-	assert.equal(flow.phase.value, 'submitted');
-	assert.equal(flow.reportId.value, 'report-2');
-	assert.equal(http.calls.length, 3);
-});
-
-test('start 409 interview_active resumes the running interview', async () => {
-	const { flow, http } = buildFlow();
-	http.enqueue(currentResponse(null));
-	await flow.init();
-	flow.consents.value = { processing: true, privacy: true, staff: true };
-	http.enqueue({ status: 409, json: { error: 'interview_active' } });
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.start();
-	assert.equal(flow.phase.value, 'active');
-	assert.equal(flow.deadlineAt.value, DEADLINE);
-});
-
-test('start 409 mode_unavailable keeps the gate open with an error', async () => {
-	const { flow, http } = buildFlow();
-	http.enqueue(currentResponse(null));
-	await flow.init();
-	flow.consents.value = { processing: true, privacy: true, staff: true };
-	http.enqueue({ status: 409, json: { error: 'mode_unavailable' } });
-	await flow.start();
-	assert.equal(flow.phase.value, 'consent');
-	assert.equal(flow.error.value, 'mode_unavailable');
-});
-
-test('submit validates the transcript before touching the network', async () => {
-	const { flow, http } = buildFlow();
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-
-	flow.onTranscriptInput('   \n  ');
-	await flow.submit();
-	assert.deepEqual(http.calls, [
-		{ path: '/api/interviews/current', method: 'GET', body: null },
-	]);
-	assert.equal(flow.phase.value, 'active');
-
-	flow.onTranscriptInput('a'.repeat(200_001));
-	await flow.submit();
-	assert.equal(http.calls.length, 1);
-	assert.equal(flow.phase.value, 'active');
-});
-
-test('submit sends the transcript, reports success and clears the draft', async () => {
-	const storage = memoryStorage();
-	const { flow, http } = buildFlow({ storage });
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-	flow.onTranscriptInput('面接者: こんにちは\n経営者: よろしく');
-	http.enqueue({
-		status: 200,
-		json: { interview: SUBMITTED, reportId: 'report-5' },
+test('notifyCallEnded moves the live view into the monitoring state', async () => {
+	const client = fakeClient({
+		current: { interview: LIVE_INTERVIEW, reportId: null },
 	});
-	await flow.submit();
-	assert.deepEqual(http.calls[1], {
-		path: '/api/interviews/interview-1/complete',
-		method: 'POST',
-		body: { transcript: '面接者: こんにちは\n経営者: よろしく' },
-	});
-	assert.equal(flow.phase.value, 'submitted');
-	assert.equal(flow.reportId.value, 'report-5');
-	assert.equal(storage.getItem('interview-draft:interview-1'), null);
-});
+	const flow = createInterviewFlow({ client });
+	await flow.notifySession(OWNER);
+	assert.equal(flow.phase.value, 'live');
+	flow.notifyCallEnded();
+	assert.equal(flow.phase.value, 'ended');
 
-test('submit checks the deadline again immediately before sending', async () => {
-	const { flow, http, setNow } = buildFlow();
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-	flow.onTranscriptInput('late attempt');
-	setNow(DEADLINE_MS + 1);
-	// The timer has not fired markDeadlinePassed yet, but the hard cut must
-	// still be enforced at the moment the request would be sent.
-	await flow.submit();
-	assert.equal(http.calls.length, 1, 'no complete call after expiry');
-	assert.equal(flow.phase.value, 'expired');
-});
-
-test('submit 409 interview_expired lands in the expired state', async () => {
-	const { flow, http } = buildFlow();
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-	flow.onTranscriptInput('draft');
-	http.enqueue({ status: 409, json: { error: 'interview_expired' } });
-	await flow.submit();
-	assert.equal(flow.phase.value, 'expired');
-});
-
-test('submit 409 already_submitted re-checks and shows the report', async () => {
-	const { flow, http } = buildFlow();
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-	flow.onTranscriptInput('draft');
-	http.enqueue({ status: 409, json: { error: 'already_submitted' } });
-	http.enqueue(currentResponse(SUBMITTED, 'report-7'));
-	await flow.submit();
-	assert.equal(flow.phase.value, 'submitted');
-	assert.equal(flow.reportId.value, 'report-7');
-});
-
-test('submit network failure restores active state and keeps the text', async () => {
-	const storage = memoryStorage();
-	const { flow, http } = buildFlow({ storage });
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-	flow.onTranscriptInput('keep me');
-	http.enqueue({ status: 0, json: null, networkError: true });
-	await flow.submit();
-	assert.equal(flow.phase.value, 'active');
-	assert.equal(flow.error.value, 'network');
-	assert.equal(flow.transcript.value, 'keep me');
-	assert.equal(
-		storage.getItem('interview-draft:interview-1'),
-		'keep me',
-		'transcript survives a failed submit',
-	);
-});
-
-test('a network failure after the deadline lands in expired, not active', async () => {
-	const { flow, http, setNow } = buildFlow();
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-	flow.onTranscriptInput('keep me');
-	http.enqueue({ status: 0, json: null, networkError: true });
-	const submitting = flow.submit();
-	// Deadline passes while the submit request is in flight.
-	setNow(DEADLINE_MS + 1);
-	flow.markDeadlinePassed();
-	await submitting;
-	// The in-flight attempt failed; the deadline has passed, so the flow must
-	// not pretend the interview is still editable.
-	assert.equal(flow.phase.value, 'expired');
-	assert.equal(flow.error.value, 'network');
-});
-
-test('markDeadlinePassed stops transcript edits and clears the draft', () => {
-	const storage = memoryStorage();
-	const { flow, http, setNow } = buildFlow({ storage });
-	http.enqueue(currentResponse(ACTIVE));
-	flow.phase.value = 'active';
-	flow.interview.value = ACTIVE;
-	flow.onTranscriptInput('draft');
-	assert.equal(flow.transcript.value, 'draft');
-	setNow(DEADLINE_MS + 1);
-	flow.markDeadlinePassed();
-	assert.equal(flow.phase.value, 'expired');
-	const appended = flow.appendTranscript('late line');
-	assert.equal(appended, false, 'late transcript events are rejected');
-	assert.equal(flow.transcript.value, 'draft');
-	assert.equal(storage.getItem('interview-draft:interview-1'), null);
-});
-
-test('appendTranscript accumulates scripted lines and saves drafts', () => {
-	const storage = memoryStorage();
-	const { flow, http } = buildFlow({ storage });
-	http.enqueue(currentResponse(ACTIVE));
-	flow.phase.value = 'active';
-	flow.interview.value = ACTIVE;
-	assert.equal(flow.appendTranscript('面接者: こんにちは'), true);
-	assert.equal(flow.appendTranscript('経営者: どうぞ'), true);
-	assert.equal(flow.transcript.value, '面接者: こんにちは\n経営者: どうぞ');
-	assert.equal(
-		storage.getItem('interview-draft:interview-1'),
-		'面接者: こんにちは\n経営者: どうぞ',
-	);
-});
-
-test('restart after expiry: no interview → a fresh consent gate', async () => {
-	const { flow, http, setNow } = buildFlow();
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-	setNow(DEADLINE_MS + 1);
-	flow.markDeadlinePassed();
-	http.enqueue(currentResponse(null));
+	// Ending twice is a no-op, and the ended view can re-probe.
+	flow.notifyCallEnded();
+	assert.equal(flow.phase.value, 'ended');
 	await flow.restart();
-	assert.equal(flow.phase.value, 'intro');
-	assert.deepEqual(flow.consents.value, {
-		processing: false,
-		privacy: false,
-		staff: false,
-	});
-});
-
-test('restart after expiry: server still active → resume', async () => {
-	const { flow, http, setNow } = buildFlow();
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-	setNow(DEADLINE_MS + 1);
-	flow.markDeadlinePassed();
-	// Clock skew: the server may still consider the interview open.
-	http.enqueue(
-		currentResponse({ ...ACTIVE, deadlineAt: '2026-12-01T09:00:00.000Z' }),
-	);
-	await flow.restart();
-	assert.equal(flow.phase.value, 'active');
-	assert.equal(flow.deadlineAt.value, '2026-12-01T09:00:00.000Z');
-});
-
-test('restart failure is visible and retryable', async () => {
-	const { flow, http, setNow } = buildFlow();
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-	setNow(DEADLINE_MS + 1);
-	flow.markDeadlinePassed();
-	http.enqueue({ status: 0, json: null, networkError: true });
-	await flow.restart();
-	assert.equal(flow.phase.value, 'unavailable');
-});
-
-test('beginConsent moves intro → consent without network calls', async () => {
-	const { flow, http } = buildFlow();
-	http.enqueue(currentResponse(null));
-	await flow.init();
-	flow.beginConsent();
-	assert.equal(flow.phase.value, 'consent');
-	assert.equal(http.calls.length, 1);
-});
-
-test('notifySession gates by role before any interview call', async () => {
-	const { flow, http } = buildFlow();
-	await flow.notifySession(null);
-	assert.equal(flow.phase.value, 'signed-out');
-	assert.equal(http.calls.length, 0);
-
-	await flow.notifySession({
-		id: 'staff-1',
-		role: 'staff',
-		profile: { name: 'Staff Hanako', email: 'staff@example.test' },
-	});
-	assert.equal(flow.phase.value, 'staff');
-	assert.equal(http.calls.length, 0);
-
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.notifySession({
-		id: 'owner-1',
-		role: 'owner',
-		profile: {
-			name: 'Owner Taro',
-			email: 'owner@example.test',
-			businessName: 'Test Inn',
-			businessType: 'accommodation',
-			otherBusinessType: null,
-			municipality: 'Test Town',
-			phone: null,
-			website: null,
-			note: null,
-			locale: 'ja',
-		},
-	});
-	assert.equal(flow.phase.value, 'active');
-});
-
-test('replaceTranscript and clearTranscript respect the hard cut', () => {
-	const { flow, http, setNow } = buildFlow();
-	http.enqueue(currentResponse(ACTIVE));
-	flow.phase.value = 'active';
-	flow.interview.value = ACTIVE;
-
-	assert.equal(flow.replaceTranscript('replaced text'), true);
-	assert.equal(flow.transcript.value, 'replaced text');
-	setNow(DEADLINE_MS + 1);
-	flow.markDeadlinePassed();
-	assert.equal(flow.replaceTranscript('late text'), false);
-	assert.equal(flow.transcript.value, 'replaced text');
-	flow.clearTranscript();
-	assert.equal(flow.transcript.value, 'replaced text', 'clear is also cut');
-});
-
-test('resuming an active interview flags a restored draft', async () => {
-	const storage = memoryStorage();
-	storage.setItem('interview-draft:interview-1', 'restored text');
-	const { flow, http } = buildFlow({ storage });
-	http.enqueue(currentResponse(ACTIVE));
-	await flow.init();
-	assert.equal(flow.draftRestored.value, true);
-
-	const { flow: emptyFlow, http: emptyHttp } = buildFlow();
-	emptyHttp.enqueue(currentResponse(ACTIVE));
-	await emptyFlow.init();
-	assert.equal(emptyFlow.draftRestored.value, false);
+	assert.equal(flow.phase.value, 'live');
 });

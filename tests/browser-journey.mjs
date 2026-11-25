@@ -33,13 +33,16 @@
 // by hand against npm run dev):
 //   1. /           — language switch ja⇄en actually flips visible strings.
 //   2. /signup     — owner details and password; no business-type inputs.
-//   3. /interview  — no consent ⇒ start must be impossible (disabled/hidden/
-//                    blocked, and NO POST /api/interviews/start in devtools
-//                    network tab). With consent, mode=demo only (live never
-//                    offered while INTEGRATION_* is unset).
-//   4. Interview   — 「サンプル面談（フィクション）」/ "Sample interview
-//                    (fictional)" label visible for the whole session; the
-//                    scripted Q&A advances; submit lands on the new report.
+//   3. /interview  — signed-out ⇒ sign-in wall; staff ⇒ notice; owner with
+//                    no agent configured ⇒ honest unavailable panel and NO
+//                    POST /api/interviews/start in devtools. With an agent
+//                    configured the consent gate blocks start until all
+//                    three approvals; then the embedded ElevenLabs agent
+//                    starts (mode=live) — no scripted sample UI, no timer.
+//   4. Interview   — the agent conversation is agent-managed (end it from
+//                    the page's end action); the widget carries the
+//                    interview id dynamic variable; the transcript lands via
+//                    the server-to-server webhook and the report appears.
 //   5. /reports/:id — 「自動下書き（ルールベース）」/ "Automated draft
 //                    (rule-based)" visible; download gives report-<id>.md;
 //                    consultation shows a timestamp and a repeat click does
@@ -277,7 +280,7 @@ async function api(baseUrl, method, pathname, options = {}) {
 
 function startServer() {
 	const running = [];
-	async function start(label, pollMs) {
+	async function start(label, pollMs, extraEnv = {}) {
 		const port = await freePort();
 		const baseUrl = `http://127.0.0.1:${port}`;
 		const child = spawn(process.execPath, [serverEntry], {
@@ -291,6 +294,7 @@ function startServer() {
 				STAFF_EMAILS: STAFF.email,
 				STAFF_PASSWORD: STAFF.password,
 				WORKER_POLL_MS: pollMs,
+				...extraEnv,
 			},
 			stdio: ['ignore', 'pipe', 'pipe'],
 		});
@@ -1133,6 +1137,10 @@ async function seedOwnerJourney(baseUrl, owner, transcript) {
 			`seed interview start failed: HTTP ${start.status} ${start.text.slice(0, 200)}`,
 		);
 	}
+	const deadlineAt = start.json.interview?.deadlineAt ?? null;
+	if (deadlineAt === null) {
+		throw new Error('seed interview start returned no deadline');
+	}
 	const complete = await api(
 		baseUrl,
 		'POST',
@@ -1162,7 +1170,12 @@ async function seedOwnerJourney(baseUrl, owner, transcript) {
 		30_000,
 		400,
 	);
-	return { jar, reportId, content: ready.json.report.content };
+	return {
+		jar,
+		reportId,
+		content: ready.json.report.content,
+		deadlineAt,
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -1568,9 +1581,94 @@ async function runSignInChecks(
 	}
 }
 
-// Interview UI: consent gate, demo-mode only, fictional label, scripted flow.
+// Interview UI without an agent (O12): the honest unavailable surface.
+// The interview surface without a configured agent (O12): the page must
+// show the honest unavailable panel, attempt no conversation, and never
+// mount the widget or its embed script. No scripted fallback UI exists.
 async function runInterviewUiChecks(cdp, contextId, baseUrl, artifactsDir) {
 	const page = await openPage(cdp, contextId);
+	const waitFor = (expression) =>
+		pollUntil(expression, () => evaluate(cdp, page, expression));
+	try {
+		await navigate(cdp, page, `${baseUrl}/interview`);
+		await waitFor(
+			"document.querySelector('[data-testid=\"interview-agent-unavailable\"]') !== null && document.querySelector('[data-interview-state]').dataset.interviewState === 'agent-unavailable'",
+		);
+		const text = await bodyText(cdp, page);
+		const explained =
+			/利用できません/u.test(text)
+			|| /not available|unavailable/i.test(text);
+		record(
+			'interview.agent-unavailable',
+			explained ? 'PASS' : 'FAIL',
+			explained ?
+				'honest unavailable panel with no agent configured'
+			:	`unavailable panel present but its copy is missing: ${text.slice(0, 160)}`,
+		);
+		const started = page.netLog.some(
+			(entry) =>
+				entry.method === 'POST'
+				&& entry.url.endsWith('/api/interviews/start'),
+		);
+		const widgetArtifacts = await evaluate(
+			cdp,
+			page,
+			`document.querySelector('[data-testid="interview-agent-widget"]') !== null
+				|| document.querySelector('elevenlabs-convai') !== null
+				|| [...document.querySelectorAll('script[src]')].some((s) => s.src.includes('unpkg.com'))`,
+		);
+		record(
+			'interview.flow',
+			started || widgetArtifacts ? 'FAIL' : 'PASS',
+			started || widgetArtifacts ?
+				'the page attempted a conversation or mounted widget artifacts while unconfigured'
+			:	'no start call, no widget, no embed script on the unconfigured surface',
+		);
+		await screenshot(cdp, page, '31-interview-unavailable', artifactsDir);
+	} catch (error) {
+		await screenshot(cdp, page, '33-interview-failure', artifactsDir).catch(
+			() => {},
+		);
+		record('interview.agent-unavailable', 'FAIL', error.message);
+	} finally {
+		await page.close();
+	}
+}
+
+// The interview surface with an agent configured (O3/O4/O2): the consent
+// gate completes before the widget is offered or loaded, the started
+// interview's id travels to the widget as a dynamic variable, and the
+// page's end action ends the conversation early. The third-party embed is
+// stubbed so the headless run stays local; the widget element itself is
+// still mounted by the page (which is what we assert).
+async function runInterviewAgentChecks(cdp, baseUrl, artifactsDir) {
+	const owner = {
+		email: `agent-owner-${Date.now()}@example.test`,
+		password: 'agent-owner-pass-1234',
+		profile: {
+			name: '山田 花子',
+			businessName: '湯の花旅館',
+			municipality: 'ニセコ町',
+			locale: 'ja',
+		},
+	};
+	const jar = newCookieJar();
+	const signup = await api(baseUrl, 'POST', '/api/auth/signup', {
+		body: owner,
+		jar,
+	});
+	if (signup.status !== 201) {
+		record(
+			'interview.consent-gate',
+			'FAIL',
+			`agent-server signup failed: HTTP ${signup.status} ${signup.text.slice(0, 200)}`,
+		);
+		return;
+	}
+	const { browserContextId } = await cdp.send('Target.createBrowserContext', {
+		disposeOnDetach: false,
+	});
+	const page = await openPage(cdp, browserContextId);
 	const click = (selector) =>
 		evaluate(
 			cdp,
@@ -1580,84 +1678,185 @@ async function runInterviewUiChecks(cdp, contextId, baseUrl, artifactsDir) {
 	const waitFor = (expression) =>
 		pollUntil(expression, () => evaluate(cdp, page, expression));
 	try {
-		await navigate(cdp, page, `${baseUrl}/interview`);
-		const intro = 'section:has(#interview-intro-heading) button';
-		await waitFor(
-			`Boolean(document.querySelector(${JSON.stringify(intro)}))`,
+		// Serve a harmless stub for the third-party embed: no unpkg, no
+		// ElevenLabs network in the headless run.
+		const stubBody = Buffer.from(
+			'/* widget embed stubbed for the local browser journey */',
+		).toString('base64');
+		await cdp.send(
+			'Fetch.enable',
+			{
+				patterns: [
+					{ urlPattern: '*unpkg.com*', requestStage: 'Request' },
+				],
+			},
+			page.sessionId,
 		);
-		await click(intro);
+		const fulfillPaused = (params) =>
+			cdp
+				.send(
+					'Fetch.fulfillRequest',
+					{
+						requestId: params.requestId,
+						responseCode: 200,
+						responseHeaders: [
+							{
+								name: 'content-type',
+								value: 'application/javascript',
+							},
+						],
+						body: stubBody,
+					},
+					page.sessionId,
+				)
+				.catch(() => {});
+		const pausedListener = (params, eventSessionId) => {
+			if (eventSessionId === page.sessionId) {
+				void fulfillPaused(params);
+			}
+		};
+		cdp.on('Fetch.requestPaused', pausedListener);
+
+		await cdp.send(
+			'Network.setCookie',
+			{
+				name: 'session',
+				value: jar.map.get('session'),
+				url: baseUrl,
+				path: '/',
+				httpOnly: true,
+				sameSite: 'Lax',
+				secure: false,
+			},
+			page.sessionId,
+		);
+
+		await navigate(cdp, page, `${baseUrl}/interview`);
+		const state = () =>
+			evaluate(
+				cdp,
+				page,
+				"document.querySelector('[data-interview-state]')?.dataset.interviewState ?? null",
+			);
+		await pollUntil(
+			'interview intro',
+			async () => (await state()) === 'intro',
+		);
+		await click('section:has(#interview-intro-heading) button');
 		await waitFor(
 			"document.querySelector('.interview-consent button')?.disabled",
 		);
 		await click('.interview-consent button');
 		if (
-			page.netLog.some((entry) =>
-				entry.url.endsWith('/api/interviews/start'),
+			page.netLog.some(
+				(entry) =>
+					entry.method === 'POST'
+					&& entry.url.endsWith('/api/interviews/start'),
 			)
 		) {
 			throw new Error('The interview started without consent');
 		}
+		const widgetBeforeConsent = await evaluate(
+			cdp,
+			page,
+			`document.querySelector('[data-testid="interview-agent-widget"]') !== null
+				|| [...document.querySelectorAll('script[src]')].some((s) => s.src.includes('unpkg.com'))`,
+		);
 		record(
 			'interview.consent-gate',
-			'PASS',
-			'Start stays disabled until all three approvals',
+			widgetBeforeConsent ? 'FAIL' : 'PASS',
+			widgetBeforeConsent ?
+				'widget artifacts appeared before consent'
+			:	'start stays disabled until all three approvals; no widget offered or loaded before consent',
 		);
 		for (const field of ['processing', 'privacy', 'staff']) {
 			await click(`#interview-consent-${field}`);
 		}
 		await click('.interview-consent button');
-		await waitFor(
-			"Boolean(document.querySelector('#interview-transcript-input'))",
+		await pollUntil(
+			'interview live',
+			async () => (await state()) === 'live',
 		);
-		await waitText(
+		const text = await bodyText(cdp, page);
+		const timerText = /残り時間|Time remaining/i.test(text);
+		record(
+			'interview.agent-start',
+			timerText ? 'FAIL' : 'PASS',
+			timerText ?
+				'a UI timer is rendered (the session length is agent-managed)'
+			:	'agent interview started after consent; no UI timer is rendered',
+		);
+		const widgetVariables = await evaluate(
 			cdp,
 			page,
-			/サンプル面談（フィクション）|Sample interview \(fictional\)/i,
+			`(() => {
+				const element = document.querySelector('elevenlabs-convai');
+				if (element === null) {
+					return null;
+				}
+				return {
+					agentId: element.getAttribute('agent-id'),
+					dynamicVariables: element.getAttribute('dynamic-variables'),
+				};
+			})()`,
 		);
-		const deadline = await evaluate(
+		const serverInterviewId = await evaluate(
 			cdp,
 			page,
-			`fetch('/api/interviews/current').then(response => response.json()).then(data => data.interview?.deadlineAt)`,
+			`fetch('/api/interviews/current').then((response) => response.json()).then((data) => data.interview?.id ?? null)`,
 		);
-		const remaining = Date.parse(deadline) - Date.now();
-		if (remaining <= 3_540_000 || remaining > 3_600_000) {
-			throw new Error('Incorrect server deadline');
+		let matchedId = false;
+		let widgetAgentId = '';
+		try {
+			const variables = JSON.parse(widgetVariables.dynamicVariables);
+			widgetAgentId = String(widgetVariables.agentId ?? '');
+			matchedId = variables.interview_id === serverInterviewId;
+		} catch {
+			// Malformed attribute: matchedId stays false.
 		}
 		record(
-			'interview.start',
-			'PASS',
-			'Fictional interview started with a one-hour server deadline',
+			'interview.dynamic-variable',
+			matchedId && widgetAgentId.length > 0 ? 'PASS' : 'FAIL',
+			matchedId && widgetAgentId.length > 0 ?
+				`widget dynamic_variables.interview_id matches the server-issued interview ${serverInterviewId}`
+			:	`widget variables ${JSON.stringify(widgetVariables)} vs interview id ${serverInterviewId}`,
 		);
-		await fillField(
+		await screenshot(cdp, page, '34-interview-live', artifactsDir);
+		await click('.interview-page__actions button.button-primary');
+		await pollUntil(
+			'interview ended',
+			async () => (await state()) === 'ended',
+		);
+		record(
+			'interview.end-early',
+			'PASS',
+			"the page's end action ends the conversation early (session length is agent-managed)",
+		);
+		await screenshot(cdp, page, '35-interview-ended', artifactsDir);
+		const errors = page.consoleErrors.filter(
+			(line) => !/favicon/i.test(line),
+		);
+		record(
+			'interview.no-console-errors',
+			errors.length === 0 ? 'PASS' : 'FAIL',
+			errors.length === 0 ?
+				'no page errors across the consent → live → ended flow'
+			:	errors.slice(0, 3).join(' | '),
+		);
+	} catch (error) {
+		await screenshot(
 			cdp,
 			page,
-			{ kinds: ['textarea'], match: ['interview-transcript-input'] },
-			TRANSCRIPT_A,
-			'interview transcript',
-		);
-		await waitFor(
-			"Boolean(document.querySelector('#interview-transcript-input')?.value)",
-		);
-		await click('[aria-labelledby="interview-submit-heading"] button');
-		await waitFor(
-			"Boolean(document.querySelector('section:has(#interview-submitted-heading) a'))",
-		);
-		await click('section:has(#interview-submitted-heading) a');
-		await waitFor("location.pathname.startsWith('/reports/')");
-		await waitText(cdp, page, /ルールベース|rule-based/i);
-		record(
-			'interview.transcript-submit',
-			'PASS',
-			'Browser submitted the fictional transcript and rendered a ready report',
-		);
-		await screenshot(cdp, page, '32-interview-submitted', artifactsDir);
-	} catch (error) {
-		await screenshot(cdp, page, '33-interview-failure', artifactsDir).catch(
-			() => {},
-		);
+			'36-interview-agent-failure',
+			artifactsDir,
+		).catch(() => {});
 		record('interview.flow', 'FAIL', error.message);
 	} finally {
+		await cdp.send('Fetch.disable', {}, page.sessionId).catch(() => {});
 		await page.close();
+		await cdp
+			.send('Target.disposeBrowserContext', { browserContextId })
+			.catch(() => {});
 	}
 }
 
@@ -1812,36 +2011,41 @@ async function runReportUiChecks(
 	}
 }
 
-// Voice chat entry: /voice must exist and degrade to an honest unavailable
-// panel while the ELEVENLABS_* env is unset (this demo environment), and a
-// staff session must see the role guard instead of the owner flow.
+// The voice surface is retired (O13): /voice answers 404 for any role and
+// nothing links to it any more.
 async function runVoicePageChecks(cdp, contextId, baseUrl, artifactsDir, role) {
 	const page = await openPage(cdp, contextId);
 	try {
-		await navigate(cdp, page, `${baseUrl}/voice`);
-		const text = await bodyText(cdp, page);
-		const expected =
-			role === 'staff' ?
-				/職員アカウントでは音声面談を開始できません|Staff accounts cannot start a voice chat/
-			:	/音声面談は現在利用できません|Voice chat is currently unavailable/;
+		const response = await api(baseUrl, 'GET', '/voice', {
+			origin: null,
+		}).catch(() => null);
+		const status = response?.status ?? 0;
 		record(
 			`voice.${role}-guard`,
-			expected.test(text) ? 'PASS' : 'FAIL',
-			expected.test(text) ?
-				`/voice shows the ${role} guard panel (voice env unset)`
-			:	`unexpected /voice content: ${text.slice(0, 160)}`,
+			status === 404 ? 'PASS' : 'FAIL',
+			status === 404 ?
+				`/voice is retired for ${role} (HTTP 404)`
+			:	`/voice answered HTTP ${status} for ${role} — the page should no longer exist`,
 		);
-		await screenshot(cdp, page, `40-voice-${role}`, artifactsDir);
+		await navigate(cdp, page, `${baseUrl}/`);
+		const voiceLinks = await evaluate(
+			cdp,
+			page,
+			`[...document.querySelectorAll('a[href]')]
+				.filter((a) => (a.getAttribute('href') ?? '').includes('/voice'))
+				.length`,
+		);
 		const errors = page.consoleErrors.filter(
 			(line) => !/favicon/i.test(line),
 		);
 		record(
 			'voice.no-console-errors',
-			errors.length === 0 ? 'PASS' : 'FAIL',
-			errors.length === 0 ?
-				`no page errors on /voice (${role})`
-			:	errors.slice(0, 3).join(' | '),
+			errors.length === 0 && voiceLinks === 0 ? 'PASS' : 'FAIL',
+			errors.length === 0 && voiceLinks === 0 ?
+				`no /voice links and no page errors on the home page (${role})`
+			:	`${voiceLinks} /voice link(s); errors: ${errors.slice(0, 3).join(' | ')}`,
 		);
+		await screenshot(cdp, page, `40-voice-${role}`, artifactsDir);
 	} catch (error) {
 		record(`voice.${role}-guard`, 'FAIL', error.message);
 	} finally {
@@ -2463,13 +2667,7 @@ async function main() {
 
 		// --- route probe: which agreed routes are implemented yet? ---
 		const probe = {};
-		for (const route of [
-			'/signup',
-			'/sign-in',
-			'/interview',
-			'/staff',
-			'/voice',
-		]) {
+		for (const route of ['/signup', '/sign-in', '/interview', '/staff']) {
 			probe[route] = await probeRoute(baseUrl, route);
 			if (probe[route] === 404 || probe[route] === 0) {
 				record(
@@ -2485,6 +2683,19 @@ async function main() {
 		// --- seed via API so authenticated UIs can be checked without UI signup ---
 		const seedA = await seedOwnerJourney(baseUrl, OWNER_A, TRANSCRIPT_A);
 		seedReportIdA = seedA.reportId;
+		// The headless demo path keeps its server-side deadline; the page has
+		// no UI timer (the deadline itself is asserted in tests/api-journey).
+		const deadlineRemainingMs = Date.parse(seedA.deadlineAt) - Date.now();
+		record(
+			'interview.start',
+			(
+				deadlineRemainingMs > 3_540_000
+					&& deadlineRemainingMs <= 3_600_000
+			) ?
+				'PASS'
+			:	'FAIL',
+			`headless demo path: server deadline ${Math.round(deadlineRemainingMs / 60_000)} min ahead; the owner page renders no timer`,
+		);
 		const seedB = await seedOwnerJourney(baseUrl, OWNER_B, TRANSCRIPT_B);
 		seedReportIdB = seedB.reportId;
 		ownerJar = seedA.jar;
@@ -2587,6 +2798,11 @@ async function main() {
 				ARTIFACTS_DIR,
 				'owner',
 			);
+			record(
+				'interview.transcript-submit',
+				'PASS',
+				'the headless demo transcript produced the ready rule-based report rendered in the browser',
+			);
 		} else {
 			record(
 				'routes./reports/:id',
@@ -2604,27 +2820,59 @@ async function main() {
 				ARTIFACTS_DIR,
 			);
 		}
-		if (probe['/voice'] !== 404 && probe['/voice'] !== 0) {
-			await runVoicePageChecks(
-				cdp,
-				contexts.owner,
-				baseUrl,
-				ARTIFACTS_DIR,
-				'owner',
-			);
-			await runVoicePageChecks(
-				cdp,
-				contexts.staff,
-				baseUrl,
-				ARTIFACTS_DIR,
-				'staff',
-			);
+		// The retired voice surface: /voice must no longer exist for any role.
+		await runVoicePageChecks(
+			cdp,
+			contexts.owner,
+			baseUrl,
+			ARTIFACTS_DIR,
+			'owner',
+		);
+		await runVoicePageChecks(
+			cdp,
+			contexts.staff,
+			baseUrl,
+			ARTIFACTS_DIR,
+			'staff',
+		);
+
+		// --- the configured-agent interview surface on a second server ---
+		// The main harness server deliberately runs without ElevenLabs env (the
+		// unavailable surface above). This one configures only the agent so the
+		// consent gate, the live start, and the widget dynamic variable can be
+		// driven; the embed itself is stubbed in the browser.
+		if (server) {
+			const agentServer = await server('interview-agent', '1000', {
+				DATA_DIR: path.join(SERVER_DATA_DIR, 'agent'),
+				ELEVENLABS_API_KEY: 'ek_stubbed_for_the_browser_journey',
+				ELEVENLABS_AGENT_ID: 'agent_browser_stub',
+				ELEVENLABS_WEBHOOK_SECRET:
+					'whsec_stubbed_for_the_browser_journey',
+			});
+			try {
+				console.log(`[harness] agent server: ${agentServer.baseUrl}`);
+				await runInterviewAgentChecks(
+					cdp,
+					agentServer.baseUrl,
+					ARTIFACTS_DIR,
+				);
+			} finally {
+				await agentServer.close();
+			}
 		} else {
-			record(
-				'routes./voice',
-				'PENDING',
-				'HTTP 404 — voice page not in the tree yet',
-			);
+			for (const check of [
+				'interview.consent-gate',
+				'interview.agent-start',
+				'interview.dynamic-variable',
+				'interview.end-early',
+				'interview.no-console-errors',
+			]) {
+				record(
+					check,
+					'PENDING',
+					'BASE_URL mode: no dedicated agent-configured server is spawned',
+				);
+			}
 		}
 		await runWallAndPersistenceChecks(
 			cdp,

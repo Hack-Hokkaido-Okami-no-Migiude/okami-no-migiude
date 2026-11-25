@@ -26,6 +26,8 @@ import {
 import { createVoiceProviders } from './voice/providers';
 import { processNextVoiceResearch } from './voice/jobs';
 import { processNextVoiceAssessment } from './voice/assessment';
+import { processNextInterviewResearch } from './interviews/research';
+import { processNextInterviewAssessment } from './interviews/assessment';
 import { syncToNeonIfDue } from './neon/sync';
 
 const MAX_ATTEMPTS = 5;
@@ -63,8 +65,17 @@ async function processDueWork(): Promise<void> {
 		const didReport = processNextReport();
 		const didVoice = await processNextVoice();
 		const didAssessment = await processNextAssessment();
+		const didInterviewResearch = await processInterviewResearch();
+		const didInterviewAssessment = await processInterviewAssessment();
 		const didMail = processQueuedMail();
-		if (!didReport && !didVoice && !didAssessment && !didMail) {
+		if (
+			!didReport
+			&& !didVoice
+			&& !didAssessment
+			&& !didInterviewResearch
+			&& !didInterviewAssessment
+			&& !didMail
+		) {
 			return;
 		}
 	}
@@ -85,6 +96,27 @@ function processNextAssessment(): Promise<boolean> {
 		return Promise.resolve(false);
 	}
 	return processNextVoiceAssessment(
+		nowMs(),
+		createVoiceProviders(readVoiceConfig()),
+	);
+}
+
+/** Live-interview research reuses the voice providers (Linkup tools). */
+function processInterviewResearch(): Promise<boolean> {
+	if (!voiceConfigured()) {
+		return Promise.resolve(false);
+	}
+	return processNextInterviewResearch(
+		nowMs(),
+		createVoiceProviders(readVoiceConfig()),
+	);
+}
+
+function processInterviewAssessment(): Promise<boolean> {
+	if (!difyConfigured()) {
+		return Promise.resolve(false);
+	}
+	return processNextInterviewAssessment(
 		nowMs(),
 		createVoiceProviders(readVoiceConfig()),
 	);
