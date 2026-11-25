@@ -54,6 +54,12 @@
 					>
 						{{ t.home.ctaStartVoice }}
 					</NuxtLink>
+					<NuxtLink
+						to="/snow"
+						class="button-secondary"
+					>
+						{{ t.home.ctaSnow }}
+					</NuxtLink>
 				</template>
 				<template v-else-if="user?.role === 'staff'">
 					<NuxtLink

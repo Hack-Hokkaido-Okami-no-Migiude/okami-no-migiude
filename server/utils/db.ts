@@ -154,6 +154,39 @@ function initSchema(db: DatabaseSync): void {
 			created_at TEXT NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_voice_sessions_owner ON voice_sessions(owner_id, created_at);
+		-- Snow-day flow: the inn's upcoming guests and the messages drafted
+		-- for them. A draft is only ever sent after the owner approved it.
+		CREATE TABLE IF NOT EXISTS guest_reservations (
+			id TEXT PRIMARY KEY,
+			owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			guest_name TEXT NOT NULL,
+			guest_country TEXT,
+			language TEXT NOT NULL CHECK (language IN ('ja', 'en', 'zh-TW', 'ko')),
+			contact TEXT,
+			arrival_date TEXT NOT NULL,
+			nights INTEGER NOT NULL DEFAULT 1 CHECK (nights > 0),
+			arrives_by TEXT,
+			is_sample INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_guest_reservations_owner ON guest_reservations(owner_id, arrival_date);
+		CREATE TABLE IF NOT EXISTS guest_messages (
+			id TEXT PRIMARY KEY,
+			owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			reservation_id TEXT NOT NULL REFERENCES guest_reservations(id) ON DELETE CASCADE,
+			purpose TEXT NOT NULL CHECK (purpose IN ('snow_day')),
+			language TEXT NOT NULL,
+			body TEXT NOT NULL,
+			trigger TEXT NOT NULL CHECK (trigger IN ('jma', 'simulated')),
+			warning_code TEXT NOT NULL,
+			status TEXT NOT NULL CHECK (status IN ('draft', 'approved', 'sent', 'discarded')),
+			created_at TEXT NOT NULL,
+			approved_at TEXT,
+			sent_at TEXT,
+			CHECK (status NOT IN ('approved', 'sent') OR approved_at IS NOT NULL),
+			CHECK (status <> 'sent' OR sent_at IS NOT NULL)
+		);
+		CREATE INDEX IF NOT EXISTS idx_guest_messages_owner ON guest_messages(owner_id, status);
 	`);
 	migrateLegacySchema(db);
 }

@@ -73,6 +73,7 @@ create table reports (
 -- 4. Reservations and guests (sample bookings for the demo)
 create table reservations (
   id                   uuid primary key default gen_random_uuid(),
+  app_ref              text unique,          -- id in the app (null for rows seeded straight into Neon)
   inn_id               uuid not null references inns(id) on delete cascade,
   guest_name           text not null,
   guest_country        text,
@@ -89,6 +90,7 @@ create table reservations (
 -- 5. Message drafts to guests, approved by the okami
 create table message_drafts (
   id              uuid primary key default gen_random_uuid(),
+  app_ref         text unique,          -- id in the app (null for rows seeded straight into Neon)
   inn_id          uuid not null references inns(id) on delete cascade,
   reservation_id  uuid references reservations(id) on delete cascade,
   purpose         text not null check (purpose in ('check_in', 'snow_day', 'marketing', 'other')),

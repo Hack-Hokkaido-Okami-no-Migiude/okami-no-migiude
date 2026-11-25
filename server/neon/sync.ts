@@ -184,6 +184,73 @@ export function buildSyncQueries(db: Db): Query[] {
 		});
 	}
 
+	// Snow-day flow: upcoming guests and the messages drafted for them.
+	// Sample guests are always marked synthetic.
+	const guests = db
+		.prepare(
+			`SELECT id, owner_id, guest_name, guest_country, language, contact, arrival_date,
+			        nights, arrives_by, is_sample
+			 FROM guest_reservations`,
+		)
+		.all() as Record<string, string | number | null>[];
+	for (const g of guests) {
+		queries.push({
+			query: `INSERT INTO reservations (app_ref, inn_id, guest_name, guest_country, language,
+			          contact, arrival_date, nights, arrives_by, is_synthetic)
+			        VALUES ($1, (SELECT id FROM inns WHERE app_user_id = $2), $3, $4, $5, $6,
+			                $7::date, $8::int, $9, $10::boolean)
+			        ON CONFLICT (app_ref) DO UPDATE SET
+			          guest_name = EXCLUDED.guest_name, guest_country = EXCLUDED.guest_country,
+			          language = EXCLUDED.language, contact = EXCLUDED.contact,
+			          arrival_date = EXCLUDED.arrival_date, nights = EXCLUDED.nights,
+			          arrives_by = EXCLUDED.arrives_by`,
+			params: [
+				g.id,
+				g.owner_id,
+				g.guest_name,
+				g.guest_country,
+				g.language,
+				g.contact,
+				g.arrival_date,
+				g.nights,
+				g.arrives_by,
+				g.is_sample === 1 ? 'true' : synthetic,
+			],
+		});
+	}
+
+	const messages = db
+		.prepare(
+			`SELECT id, owner_id, reservation_id, purpose, language, body, status,
+			        created_at, approved_at, sent_at
+			 FROM guest_messages`,
+		)
+		.all() as Record<string, string | null>[];
+	for (const m of messages) {
+		queries.push({
+			query: `INSERT INTO message_drafts (app_ref, inn_id, reservation_id, purpose, language,
+			          body, status, created_at, approved_at, sent_at)
+			        VALUES ($1, (SELECT id FROM inns WHERE app_user_id = $2),
+			                (SELECT id FROM reservations WHERE app_ref = $3), $4, $5, $6, $7,
+			                $8::timestamptz, $9::timestamptz, $10::timestamptz)
+			        ON CONFLICT (app_ref) DO UPDATE SET
+			          body = EXCLUDED.body, status = EXCLUDED.status,
+			          approved_at = EXCLUDED.approved_at, sent_at = EXCLUDED.sent_at`,
+			params: [
+				m.id,
+				m.owner_id,
+				m.reservation_id,
+				m.purpose,
+				m.language,
+				m.body,
+				m.status,
+				m.created_at,
+				m.approved_at,
+				m.sent_at,
+			],
+		});
+	}
+
 	return queries;
 }
 
