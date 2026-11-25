@@ -6,13 +6,18 @@ import { defineApi, sendJson } from '../../utils/api';
 import {
 	agentConfigured,
 	difyConfigured,
+	readVoiceConfig,
 	voiceConfigured,
 } from '../../voice/config';
 
 export default defineApi(async (event) => {
+	const config = readVoiceConfig();
 	return sendJson(event, 200, {
 		available: voiceConfigured(),
 		agentAvailable: agentConfigured(),
 		reportEngineAvailable: difyConfigured(),
+		// The public widget identifier — not a secret; it is embedded in
+		// public widget embeds by design. Empty when the agent is unset.
+		agentId: agentConfigured() ? config.elevenLabsAgentId : '',
 	});
 });

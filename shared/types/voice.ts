@@ -10,6 +10,8 @@ export type VoiceConfigResponse = {
 	agentAvailable: boolean;
 	/** The Dify post-call assessment (DIFY_API_KEY). */
 	reportEngineAvailable: boolean;
+	/** Public widget identifier; '' when the agent is not configured. */
+	agentId: string;
 };
 
 export type VoiceBusiness = {
