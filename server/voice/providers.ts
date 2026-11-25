@@ -144,9 +144,9 @@ export function readResearchReport(value: unknown): VoiceResearchReport {
 			const source = object(item);
 			const name = nonempty(source?.name)?.slice(0, 200);
 			const url =
-				typeof source?.url === 'string' && publicSource(source.url)
-					? source.url.slice(0, 500)
-					: undefined;
+				typeof source?.url === 'string' && publicSource(source.url) ?
+					source.url.slice(0, 500)
+				:	undefined;
 			if (!name || !url) {
 				return [];
 			}
@@ -277,9 +277,10 @@ export function createVoiceProviders(config: VoiceConfig): VoiceProviders {
 			);
 			// The dossier pass gets the prompt as-is; the case pass adds the
 			// five-case instruction that matches its structured schema.
-			const q = request.output === 'report'
-				? base.trim()
-				: `${base.trim()}\n\nReturn up to five concise cases with sources. Give each case a short title that identifies the solution and the business that used it. Use an empty value for undocumented outcomes or implementation costs.`;
+			const q =
+				request.output === 'report' ?
+					base.trim()
+				:	`${base.trim()}\n\nReturn up to five concise cases with sources. Give each case a short title that identifies the solution and the business that used it. Use an empty value for undocumented outcomes or implementation costs.`;
 			const data = await requestJson('Linkup', linkupUrl, {
 				method: 'POST',
 				headers: {
@@ -291,10 +292,15 @@ export function createVoiceProviders(config: VoiceConfig): VoiceProviders {
 					mode: 'research',
 					reasoningDepth: request.reasoningDepth ?? 'S',
 					outputType:
-						request.output === 'report' ? 'sourcedAnswer' : 'structured',
-					...(request.output === 'report'
-						? {}
-						: { structuredOutputSchema: JSON.stringify(researchSchema) }),
+						request.output === 'report' ?
+							'sourcedAnswer'
+						:	'structured',
+					...(request.output === 'report' ?
+						{}
+					:	{
+							structuredOutputSchema:
+								JSON.stringify(researchSchema),
+						}),
 				}),
 			});
 			const id = nonempty(data.id);
@@ -341,29 +347,35 @@ export function createVoiceProviders(config: VoiceConfig): VoiceProviders {
 		},
 
 		async runAssessment(input: VoiceAssessmentInput): Promise<string> {
-			const response = await fetch(`${config.difyApiBaseUrl}/v1/workflows/run`, {
-				method: 'POST',
-				redirect: 'manual',
-				signal: AbortSignal.timeout(DIFY_RUN_TIMEOUT_MS),
-				headers: {
-					// Built separately so the credential never sits on a
-					// header-literal line.
-					authorization: `Bearer ${config.difyApiKey}`,
-					'content-type': 'application/json',
-				},
-				body: JSON.stringify({
-					inputs: {
-						transcript: input.transcript,
-						business: input.business,
-						research_cases: input.cases,
-						report_language: input.language === 'ja' ? 'Japanese' : 'English',
+			const response = await fetch(
+				`${config.difyApiBaseUrl}/v1/workflows/run`,
+				{
+					method: 'POST',
+					redirect: 'manual',
+					signal: AbortSignal.timeout(DIFY_RUN_TIMEOUT_MS),
+					headers: {
+						// Built separately so the credential never sits on a
+						// header-literal line.
+						authorization: `Bearer ${config.difyApiKey}`,
+						'content-type': 'application/json',
 					},
-					// Streaming, not blocking: deep research loops run minutes,
-					// past the Dify Cloud blocking cap.
-					response_mode: 'streaming',
-					user: input.conversationId,
-				}),
-			});
+					body: JSON.stringify({
+						inputs: {
+							transcript: input.transcript,
+							business: input.business,
+							research_cases: input.cases,
+							report_language:
+								input.language === 'ja' ?
+									'Japanese'
+								:	'English',
+						},
+						// Streaming, not blocking: deep research loops run minutes,
+						// past the Dify Cloud blocking cap.
+						response_mode: 'streaming',
+						user: input.conversationId,
+					}),
+				},
+			);
 			if (!response.ok) {
 				throw new ProviderError('Dify', response.status);
 			}

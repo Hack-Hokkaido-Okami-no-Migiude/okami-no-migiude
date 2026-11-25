@@ -187,9 +187,7 @@ export function saveVoiceTranscript(
 // pattern as the research lifecycle above.
 
 export type VoiceAssessmentQueueResult =
-	| 'missing'
-	| 'no_transcript'
-	| VoiceAssessmentStatus;
+	'missing' | 'no_transcript' | VoiceAssessmentStatus;
 
 /** Idempotent: only a stored transcript with an idle assessment can queue. */
 export function enqueueVoiceAssessment(
@@ -337,11 +335,7 @@ export function finishAssessmentResearch(
 		.prepare(
 			'UPDATE voice_sessions SET assessment_research_status = ?, assessment_research_cases = ? WHERE conversation_id = ?',
 		)
-		.run(
-			cases === null ? 'failed' : 'completed',
-			cases,
-			conversationId,
-		);
+		.run(cases === null ? 'failed' : 'completed', cases, conversationId);
 }
 
 /** Sessions whose research is due: queued, or polling past its poll time. */

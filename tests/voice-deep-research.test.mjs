@@ -24,12 +24,7 @@ test('the deep pass uses the heaviest reasoning depth', () => {
 
 test('a Japanese transcript fills the focus topics and intake', () => {
 	const transcript = 'オーナー: 従業員が足りなくて困っています。';
-	const prompt = deepResearchPrompt(
-		BUSINESS,
-		transcript,
-		TOPICS,
-		'ja',
-	);
+	const prompt = deepResearchPrompt(BUSINESS, transcript, TOPICS, 'ja');
 	assert.match(prompt, /人材の確保と定着/);
 	assert.match(prompt, /ニセコ町/);
 	assert.match(prompt, /small local business/);
@@ -38,12 +33,7 @@ test('a Japanese transcript fills the focus topics and intake', () => {
 
 test('an English transcript produces English titles with a comma list', () => {
 	const transcript = 'Owner: our staff turnover is high in winter.';
-	const prompt = deepResearchPrompt(
-		BUSINESS,
-		transcript,
-		TOPICS,
-		'en',
-	);
+	const prompt = deepResearchPrompt(BUSINESS, transcript, TOPICS, 'en');
 	assert.match(prompt, /Staffing and retention/);
 });
 
@@ -58,11 +48,7 @@ test('a transcript without keyword matches ships no focus block', () => {
 });
 
 test('matching is capped and accepts topics from either language table', () => {
-	const titles = matchedTopicTitles(
-		'従業員 staff 季節 hiring',
-		TOPICS,
-		'ja',
-	);
+	const titles = matchedTopicTitles('従業員 staff 季節 hiring', TOPICS, 'ja');
 	assert.ok(titles.length > 0);
 	assert.ok(titles.length <= 4);
 	assert.ok(titles.includes('人材の確保と定着'));

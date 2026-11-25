@@ -74,13 +74,13 @@ const RESEARCH_CASES = [
 ];
 
 // The canned report the loopback Dify stub streams back.
-const ASSESSMENT_REPORT = '# 経営相談レポート（デモ）: 湯の花旅館\n\n自動下書き（Dify）';
+const ASSESSMENT_REPORT =
+	'# 経営相談レポート（デモ）: 湯の花旅館\n\n自動下書き（Dify）';
 
 // The canned result of the post-call deep pass (reasoningDepth XL,
 // outputType sourcedAnswer): a full sourced dossier, not a case list.
 const DEEP_RESEARCH_DOSSIER = {
-	answer:
-		'# 深掘り調査デモ\n\nシフト作成には週3時間かかる。Roster automation apps for small accommodations build the weekly schedule from the booking calendar automatically; typical pricing is a few thousand yen per month, setup takes one afternoon and staff need about one hour of training.',
+	answer: '# 深掘り調査デモ\n\nシフト作成には週3時間かかる。Roster automation apps for small accommodations build the weekly schedule from the booking calendar automatically; typical pricing is a few thousand yen per month, setup takes one afternoon and staff need about one hour of training.',
 	sources: [
 		{ name: 'Deep pass source', url: 'https://example.test/deep-pass' },
 	],
@@ -438,7 +438,6 @@ async function startVoiceServer({ label, dir, extraEnv = {} }) {
 		PUBLIC_BASE_URL: baseUrl,
 		STAFF_EMAILS: 'staff@example.test',
 		STAFF_PASSWORD: 'staff-pass-1234',
-		SMTP_HOST: '',
 		INTEGRATION_BASE_URL: '',
 		INTEGRATION_TOKEN: '',
 		CLOCK_OFFSET_MS: '',
@@ -1096,20 +1095,23 @@ test(
 			// Attempt 1 fails against the stub; the worker backs off (~60s)
 			// and retries, so first prove the scheduled-retry state, then wait
 			// for the successful second attempt.
-			await pollUntil('first assessment attempt scheduled a retry', () => {
-				let row;
-				withDb(dir, (db) => {
-					row = db
-						.prepare(
-							'SELECT assessment_status, assessment_attempts FROM voice_sessions WHERE conversation_id = ?',
-						)
-						.get('conv_stub_3');
-				});
-				return (
-					row.assessment_status === 'queued' &&
-					row.assessment_attempts === 1
-				);
-			});
+			await pollUntil(
+				'first assessment attempt scheduled a retry',
+				() => {
+					let row;
+					withDb(dir, (db) => {
+						row = db
+							.prepare(
+								'SELECT assessment_status, assessment_attempts FROM voice_sessions WHERE conversation_id = ?',
+							)
+							.get('conv_stub_3');
+					});
+					return (
+						row.assessment_status === 'queued'
+						&& row.assessment_attempts === 1
+					);
+				},
+			);
 			await pollUntil(
 				'assessment completed',
 				async () => {
@@ -1148,7 +1150,10 @@ test(
 			assert.equal(assessmentBody.response_mode, 'streaming');
 			assert.equal(assessmentBody.user, 'conv_stub_3');
 			assert.equal(assessmentBody.inputs.report_language, 'Japanese');
-			assert.match(assessmentBody.inputs.transcript, /旅館のことを話します/);
+			assert.match(
+				assessmentBody.inputs.transcript,
+				/旅館のことを話します/,
+			);
 			assert.match(assessmentBody.inputs.business, /湯の花旅館/);
 			// The research evidence is one JSON object: the in-call cases plus
 			// the deep dossier (answer + sources).
@@ -1159,7 +1164,10 @@ test(
 				/Roster automation apps/,
 			);
 			assert.deepEqual(evidence.deep_research_report.sources, [
-				{ name: 'Deep pass source', url: 'https://example.test/deep-pass' },
+				{
+					name: 'Deep pass source',
+					url: 'https://example.test/deep-pass',
+				},
 			]);
 
 			// The deep pass ran at the heaviest depth as a sourced dossier:
@@ -1173,7 +1181,10 @@ test(
 			assert.doesNotMatch(deepRequest.q, /up to five concise cases/);
 			assert.match(deepRequest.q, /人材の確保と定着/);
 			assert.match(deepRequest.q, /ニセコ町/);
-			assert.doesNotMatch(deepRequest.q, /\[(LOCATION|BUSINESS_TYPE|FOCUS)\]/);
+			assert.doesNotMatch(
+				deepRequest.q,
+				/\[(LOCATION|BUSINESS_TYPE|FOCUS)\]/,
+			);
 
 			withDb(dir, (db) => {
 				const session = db
@@ -1186,7 +1197,9 @@ test(
 				// failed first attempt, then the successful retry.
 				assert.equal(session.assessment_attempts, 1);
 				const report = db
-					.prepare('SELECT * FROM reports WHERE voice_conversation_id = ?')
+					.prepare(
+						'SELECT * FROM reports WHERE voice_conversation_id = ?',
+					)
 					.get('conv_stub_3');
 				assert.ok(report);
 				assert.equal(report.interview_id, null);

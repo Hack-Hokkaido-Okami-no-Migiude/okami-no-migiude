@@ -71,7 +71,10 @@ export function readVoiceConfig(): VoiceConfig {
 			'LINKUP_API_BASE_URL',
 			LINKUP_DEFAULT_BASE_URL,
 		),
-		difyApiBaseUrl: providerBaseUrl('DIFY_API_BASE_URL', DIFY_DEFAULT_BASE_URL),
+		difyApiBaseUrl: providerBaseUrl(
+			'DIFY_API_BASE_URL',
+			DIFY_DEFAULT_BASE_URL,
+		),
 	};
 }
 

@@ -175,7 +175,9 @@ async function advanceVoiceAssessment(
 		}
 		finishAssessmentResearch(
 			id,
-			result.status === 'completed' ? JSON.stringify(result.report) : null,
+			result.status === 'completed' ?
+				JSON.stringify(result.report)
+			:	null,
 		);
 	}
 	// Research terminal (completed or failed): write the report. Re-read the

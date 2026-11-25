@@ -77,11 +77,12 @@ export function deepResearchPrompt(
 	locale: Locale,
 ): string {
 	const titles = matchedTopicTitles(transcript, topics, locale);
-	const focus = titles.length
-		? `- **Focus topics from the interview:** ${
-				titles.join(locale === 'ja' ? '、' : ', ')
-			}\n\nWeight the search toward these topics: the interview showed the owner loses the most time there.\n`
-		: '';
+	const focus =
+		titles.length ?
+			`- **Focus topics from the interview:** ${titles.join(
+				locale === 'ja' ? '、' : ', ',
+			)}\n\nWeight the search toward these topics: the interview showed the owner loses the most time there.\n`
+		:	'';
 	return FOCUS_PROMPT_TEMPLATE.replace(
 		/\[(LOCATION|FOCUS)\]/g,
 		(_, key: string) => (key === 'LOCATION' ? business.location : focus),

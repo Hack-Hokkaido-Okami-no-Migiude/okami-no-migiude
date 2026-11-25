@@ -6,7 +6,11 @@ import { getHeader } from 'h3';
 import { defineApi, sendJson } from '../../../utils/api';
 import { apiError } from '../../../utils/errors';
 import { readJsonObject } from '../../../utils/validate';
-import { readVoiceConfig, voiceConfigured, difyConfigured } from '../../../voice/config';
+import {
+	readVoiceConfig,
+	voiceConfigured,
+	difyConfigured,
+} from '../../../voice/config';
 import {
 	findVoiceSessionByConversation,
 	saveVoiceTranscript,

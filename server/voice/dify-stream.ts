@@ -51,9 +51,9 @@ export async function readDifyReport(
 			const outputs =
 				data && isObject(data.outputs) ? data.outputs : undefined;
 			const text =
-				outputs && typeof outputs.report === 'string'
-					? outputs.report.trim()
-					: '';
+				outputs && typeof outputs.report === 'string' ?
+					outputs.report.trim()
+				:	'';
 			if (data?.status === 'succeeded' && text) {
 				report = text;
 			} else {
