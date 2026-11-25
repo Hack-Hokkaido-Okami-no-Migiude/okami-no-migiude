@@ -119,6 +119,20 @@ test('init: load failure lands in the retryable unavailable state', async () => 
 	assert.equal(flow.phase.value, 'intro');
 });
 
+test('retrying after a load failure keeps the saved draft', async () => {
+	const storage = memoryStorage();
+	storage.setItem('interview-draft:interview-1', 'kept draft');
+	const { flow, http } = buildFlow({ storage });
+	http.enqueue({ status: 0, json: null, networkError: true });
+	await flow.init();
+	assert.equal(flow.phase.value, 'unavailable');
+	http.enqueue(currentResponse(ACTIVE));
+	await flow.init();
+	assert.equal(flow.phase.value, 'active');
+	assert.equal(flow.transcript.value, 'kept draft');
+	assert.equal(flow.draftRestored.value, true);
+});
+
 test('start is refused until every disclosure is acknowledged', async () => {
 	const { flow, http } = buildFlow();
 	http.enqueue(currentResponse(null));
