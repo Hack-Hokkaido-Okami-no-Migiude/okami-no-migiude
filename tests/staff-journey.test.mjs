@@ -410,6 +410,32 @@ test(
 				return response.json.report.status === 'ready';
 			});
 
+			console.log(
+				'## step: staff opens the ready report before follow-up',
+			);
+			const staffReportA = await request(
+				b.baseUrl,
+				'GET',
+				`/api/reports/${reportAId}`,
+				{ jar: jarStaff, origin: null },
+			);
+			expectStatus('staff report A detail', staffReportA, 200);
+			assert.equal(staffReportA.json.report.status, 'ready');
+			assert.equal(
+				staffReportA.json.report.businessName,
+				OWNER_A.profile.businessName,
+				'staff opened the same report the owner received',
+			);
+			assert.ok(
+				staffReportA.json.report.content,
+				'the ready report carries the generated content',
+			);
+			assert.equal(
+				staffReportA.json.report.consultationRequestedAt,
+				null,
+				'no owner follow-up has been requested yet',
+			);
+
 			console.log('## step: queue reflects ready + consultation state');
 			const readyQueue = await request(
 				b.baseUrl,
