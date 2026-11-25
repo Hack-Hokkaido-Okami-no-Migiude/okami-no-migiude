@@ -27,6 +27,7 @@ export type InterviewRow = {
 	deadline_at: string;
 	submitted_at: string | null;
 	transcript: string | null;
+	conversation_id: string | null;
 	business_json: string | null;
 	report_language: string | null;
 	research_status: InterviewResearchStatus;
@@ -76,6 +77,49 @@ export function findActiveUnexpiredInterview(
 			 ORDER BY started_at DESC LIMIT 1`,
 		)
 		.get(ownerId, nowIsoText) as unknown as InterviewRow | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Minted conversation association: POST /api/voice/sessions records the
+// ElevenLabs conversation it minted for the interview, so the post-call
+// webhook can still reach the interview when the client could not pass the
+// interview id as a dynamic variable.
+// ---------------------------------------------------------------------------
+
+/** The owner's active, unexpired live interview (the mint precondition). */
+export function findActiveLiveInterview(
+	ownerId: string,
+	nowIsoText: string,
+): InterviewRow | undefined {
+	return getDb()
+		.prepare(
+			`SELECT * FROM interviews WHERE owner_id = ? AND mode = 'live' AND status = 'active' AND deadline_at > ?
+			ORDER BY started_at DESC LIMIT 1`,
+		)
+		.get(ownerId, nowIsoText) as unknown as InterviewRow | undefined;
+}
+
+/**
+ * Records which conversation was minted for the interview. Latest wins: a
+ * re-mint (client retry) repoints the interview at the conversation that
+ * will actually run.
+ */
+export function recordInterviewConversation(
+	interviewId: string,
+	conversationId: string,
+): void {
+	getDb()
+		.prepare('UPDATE interviews SET conversation_id = ? WHERE id = ?')
+		.run(conversationId, interviewId);
+}
+
+/** The interview a minted conversation belongs to (webhook fallback lookup). */
+export function findInterviewByConversation(
+	conversationId: string,
+): InterviewRow | undefined {
+	return getDb()
+		.prepare('SELECT * FROM interviews WHERE conversation_id = ?')
+		.get(conversationId) as unknown as InterviewRow | undefined;
 }
 
 export function insertInterview(
