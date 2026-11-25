@@ -55,7 +55,7 @@ const ja = {
 			},
 			privacy: {
 				label: '音声データの扱いに同意します',
-				detail: '音声は通話中にElevenLabsの音声AIサービスで処理されます。このアプリが録音ファイルを保存・送信することはありません。類似事例の調査にはLinkupが使われ、事業所名・市区町村・事業種別が使われます。',
+				detail: '音声は通話中にElevenLabsの音声AIサービスで処理されます。このアプリが録音ファイルを保存・送信することはありません。類似事例の調査にはLinkupが使われ、事業所名・市区町村が使われます。',
 			},
 			staff: {
 				label: '担当職員による参照に同意します',
@@ -174,7 +174,7 @@ const en: VoiceStrings = {
 			},
 			privacy: {
 				label: 'I agree to the handling of my voice data',
-				detail: 'Your voice is processed live by the ElevenLabs voice AI service. This app never records or uploads an audio file. Linkup is used to research similar businesses, using your business name, municipality and business type.',
+				detail: 'Your voice is processed live by the ElevenLabs voice AI service. This app never records or uploads an audio file. Linkup is used to research similar businesses, using your business name and municipality.',
 			},
 			staff: {
 				label: 'I agree to staff review',
