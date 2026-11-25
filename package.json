@@ -1,5 +1,6 @@
 {
 	"name": "nuxt-template-bootstrap",
+	"license": "MIT",
 	"private": true,
 	"type": "module",
 	"scripts": {
