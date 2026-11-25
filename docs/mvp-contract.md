@@ -43,6 +43,18 @@ taking precedence over the discovery details below.
 Change control: any change to §4 (types), §5 (endpoints), or §10 (integration
 boundary) requires lead sign-off before code changes.
 
+Recorded 2026-11-25 (grounding pass): commit fa926bb removed business type from
+signup intake. The form collects name, email, business name and municipality
+plus optional phone, website, note and a profile-language choice, and the
+server still accepts a `businessType` value for older clients, defaulting it to
+`other` (`server/utils/signup.ts`). The shipped slice also differs from §9, §10
+and §15 as follows: SMTP is intentionally not implemented (the local `.eml`
+outbox is the default, with an optional Resend REST adapter behind
+`MAIL_LIVE_PROVIDER`), live interview mode is rejected unconditionally with
+`409 mode_unavailable` because the teammate integration is not connected, and a
+separate credentials-gated ElevenLabs voice chat (conversation only) exists
+under `/voice`; `.env.example` carries the corresponding variables.
+
 ---
 
 ## 1. Scaffold audit — verified facts this contract builds on

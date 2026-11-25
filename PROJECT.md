@@ -1,33 +1,35 @@
 # Okami no Migiude project overview
 
-Okami no Migiude is a bilingual web app designed for a municipal operator to help local small businesses understand how their work gets done and where they could save time. A business owner signs up, speaks with the AI interviewer **Shima Enaga**, and receives a private report. If they want help acting on it, they can ask a human advisor to walk through the recommendations.
+Okami no Migiude is a bilingual web app designed for a municipal operator to help local small businesses understand how their work gets done and where they could save time. A business owner signs up, completes the **Shima Enaga** interview, and receives a private report. If they want help acting on it, they can ask a human advisor to walk through the recommendations.
 
 The Hack Hokkaido demo follows a family-run onsen inn in Jozankei. The same signup, interview, and report journey is intended to work for other small businesses. Shima Enaga takes its name and bird mascot from the Hokkaido long-tailed tit. The team brief uses **狼の右腕** for the Japanese project name.
 
 ## People and responsibilities
 
-| Role | What they do |
-|---|---|
-| Business owner | Creates an account, starts the browser interview, reads and downloads their own report, and decides whether to request a consultation. |
-| Designated platform staff | Receive a notification when a report is ready and can review it immediately. Designated staff can also see consultation requests. |
-| Advisor | Talks through the report with an owner who requests help, discusses questions or changes, and may introduce a suitable local implementation partner. |
-| Implementation partner | May help the business carry out a recommendation after an introduction. The owner decides whether to work with them. |
+| Role                      | What they do                                                                                                                                         |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Business owner            | Creates an account, starts the browser interview, reads and downloads their own report, and decides whether to request a consultation.               |
+| Designated platform staff | Receive a notification when a report is ready and can review it immediately. Designated staff can also see consultation requests.                    |
+| Advisor                   | Talks through the report with an owner who requests help, discusses questions or changes, and may introduce a suitable local implementation partner. |
+| Implementation partner    | May help the business carry out a recommendation after an introduction. The owner decides whether to work with them.                                 |
 
 ## Website and signup
 
 The homepage explains what the assessment does and has a prominent signup button. Returning owners can sign in with their email and password. The website offers a Japanese and English language selector, with translations organized so more languages can be added later.
 
-| Signup field | Expected behavior |
-|---|---|
-| Owner name | Required. |
-| Email | Required. Used for sign-in and the report-ready notification. |
-| Business name | Required. |
-| Municipality | Required. The city, town, or village where the business is located. Use **Sapporo City (札幌市)** for the Jozankei inn. Other examples are Otaru City (小樽市), Niseko Town (ニセコ町), and Akaigawa Village (赤井川村). |
-| Contact phone number | Optional. For contact details. |
-| Business website | Optional. |
-| Task the owner wants help with | Optional short note. |
+| Signup field                   | Expected behavior                                                                                                                                                                                                        |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Owner name                     | Required.                                                                                                                                                                                                                |
+| Email                          | Required. Used for sign-in and the report-ready notification.                                                                                                                                                            |
+| Business name                  | Required.                                                                                                                                                                                                                |
+| Municipality                   | Required. The city, town, or village where the business is located. Use **Sapporo City (札幌市)** for the Jozankei inn. Other examples are Otaru City (小樽市), Niseko Town (ニセコ町), and Akaigawa Village (赤井川村). |
+| Account password               | Required, at least 8 characters. Used for sign-in.                                                                                                                                                                       |
+| Contact phone number           | Optional. For contact details.                                                                                                                                                                                           |
+| Business website               | Optional.                                                                                                                                                                                                                |
+| Task the owner wants help with | Optional short note.                                                                                                                                                                                                     |
+| Profile language               | Required choice between Japanese and English. Sets the language of the report and its ready email.                                                                                                                       |
 
-Account creation and interview startup work with the four required fields alone. After signing up, the owner can start the interview whenever they are ready.
+Account creation needs the four required fields plus a password, and interview startup needs no further details. After signing up, the owner can start the interview whenever they are ready.
 
 ## User journey scorecards
 
@@ -38,11 +40,11 @@ Account creation and interview startup work with the four required fields alone.
 
 ### Browser interview
 
-Before capture begins, the website explains that Shima Enaga is AI and asks the owner to consent to recording, transcription, and use of the interview to prepare a private assessment. Capture begins only after the owner consents and starts the call.
+Before capture begins, the website explains the Shima Enaga interview and asks the owner to consent to the recording and transcription handling, the automated report processing, and staff access. Microphone capture is optional and begins only after the owner consents and starts it.
 
-Shima Enaga leads a browser audio conversation about the business’s day-to-day work. The interview should uncover the people and tools involved, manual tasks, bottlenecks, and what happens when a routine changes. The owner can finish early. The interview and audio capture stop at a maximum of one hour.
+Shima Enaga leads the interview about the business’s day-to-day work. In this build the shipped interview is a labeled scripted sample: the dialogue is fixed, the owner can edit the transcript before submitting, and optional microphone recording stays local (no automatic transcription, nothing uploaded). The interview should uncover the people and tools involved, manual tasks, bottlenecks, and what happens when a routine changes. The owner can finish early. The interview and audio capture stop at a maximum of one hour.
 
-The interview teammate owns the voice agent, interview questions, and research integration. During the call, the agent uses a research endpoint for domain context so it can ask better follow-up questions. The website integrates the agent and receives the completed interview data. The two sides agree on their interface so the website can associate the interview with the correct owner account and trigger report generation.
+The interview teammate owns the voice agent, interview questions, and research integration; the teammate’s live agent and research are not connected in this build, and when connected the agent will use a research endpoint for domain context so it can ask better follow-up questions. The website receives the completed interview data through the agreed interface, and the labeled demo transcript is submitted through the same interface, so the website can associate the interview with the correct owner account and trigger report generation.
 
 ### Report preparation
 
