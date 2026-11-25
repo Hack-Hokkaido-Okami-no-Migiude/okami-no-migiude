@@ -98,11 +98,13 @@ test('an unconfigured agent shows the honest unavailable state', async () => {
 	assert.equal(flow.availability.value?.agentAvailable, false);
 
 	// The honest state is not retryable via refresh(): the deployment has no
-	// agent, so nothing polls and nothing is called.
+	// agent, so nothing polls and no further current fetches happen (the
+	// one init-time fetch checks for an already-finished interview first).
+	const currentCallsAfterInit = client.currentCallCount();
 	await flow.refresh();
 	await flow.refresh();
 	assert.equal(flow.phase.value, 'agent-unavailable');
-	assert.equal(client.currentCallCount(), 0);
+	assert.equal(client.currentCallCount(), currentCallsAfterInit);
 });
 
 test('an availability probe failure keeps the generic retryable state', async () => {

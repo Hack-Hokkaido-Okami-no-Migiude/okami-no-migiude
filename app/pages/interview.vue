@@ -296,7 +296,14 @@
 </template>
 
 <script lang="ts" setup>
-	import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+	import {
+		computed,
+		nextTick,
+		onBeforeUnmount,
+		onMounted,
+		ref,
+		watch,
+	} from 'vue';
 	import {
 		createInterviewClient,
 		type InterviewHttp,
@@ -319,18 +326,6 @@
 	const strings = computed(() => interviewStrings[locale.value]);
 
 	useHead({ title: () => strings.value.pageTitle });
-	useHead({
-		script: () =>
-			flow.phase.value === 'live' ?
-				[
-					{
-						src: WIDGET_EMBED_URL,
-						async: true,
-						tagPosition: 'bodyClose' as const,
-					},
-				]
-			:	[],
-	});
 
 	async function interviewHttp(
 		path: string,
@@ -361,6 +356,22 @@
 		interviewHttp as unknown as InterviewHttp,
 	);
 	const flow = createInterviewFlow({ client });
+
+	// The widget embed is loaded only while the conversation is live — after
+	// consent completes and the server issued the interview id. The getter
+	// must stay declared after `flow` (it reads the phase during SSR too).
+	useHead({
+		script: () =>
+			flow.phase.value === 'live' ?
+				[
+					{
+						src: WIDGET_EMBED_URL,
+						async: true,
+						tagPosition: 'bodyClose' as const,
+					},
+				]
+			:	[],
+	});
 
 	const consentStarting = ref(false);
 	const ending = ref(false);
@@ -517,7 +528,11 @@
 	watch(
 		() => flow.phase.value,
 		(phase) => {
-			if (phase === 'live' || phase === 'ended' || phase === 'submitted') {
+			if (
+				phase === 'live'
+				|| phase === 'ended'
+				|| phase === 'submitted'
+			) {
 				startPolling();
 				return;
 			}

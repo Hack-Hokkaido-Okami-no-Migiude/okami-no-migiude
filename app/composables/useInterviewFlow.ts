@@ -168,6 +168,20 @@ export function createInterviewFlow(
 
 	async function init() {
 		phase.value = 'checking';
+		// A finished (or headless demo) interview shows its outcome before
+		// any availability gate: no conversation is attempted, and hiding a
+		// completed report behind the unavailable state would strand the
+		// owner. Resuming a live call still requires the agent below.
+		const existing = await loadCurrent();
+		if (
+			existing !== null
+			&& existing.interview !== null
+			&& (existing.interview.status === 'submitted'
+				|| existing.interview.mode === 'demo')
+		) {
+			applyCurrent(existing);
+			return;
+		}
 		if (!(await probeAvailability())) {
 			if (availability.value === null) {
 				// The probe itself failed (network): generic retryable state.
@@ -179,9 +193,8 @@ export function createInterviewFlow(
 			phase.value = 'agent-unavailable';
 			return;
 		}
-		const result = await loadCurrent();
-		if (result !== null) {
-			applyCurrent(result);
+		if (existing !== null) {
+			applyCurrent(existing);
 		}
 	}
 
