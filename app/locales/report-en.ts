@@ -29,6 +29,7 @@ export const reportEn: ReportPageCopy = {
 	},
 	topicObservation: 'Observation',
 	topicAction: 'Recommended action',
+	topicRank: 'Priority',
 	pendingTitle: 'Preparing your report',
 	pendingBody: 'This page switches automatically when the report is ready.',
 	failedTitle: 'Report generation failed',

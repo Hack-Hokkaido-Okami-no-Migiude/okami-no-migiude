@@ -54,6 +54,7 @@ const META_PATTERNS = {
 };
 
 const ESTIMATE_LABEL_PATTERN = /^(?:分類|Classification):\s*(.*)$/;
+const PRIORITY_PATTERN = /^(?:優先度|Priority):\s*(\d+)/;
 const OBSERVATION_PATTERN = /^(?:観察|Observation):\s*(.*)$/;
 const ACTION_PATTERN = /^(?:推奨アクション|Recommended action):\s*(.*)$/;
 
@@ -168,6 +169,7 @@ export function parseReportContent(raw: string): ReportContent | null {
 					if (result.topics.length < MAX_TOPICS) {
 						topic = {
 							title: text,
+							rank: null,
 							observation: null,
 							action: null,
 						};
@@ -278,12 +280,17 @@ export function parseReportContent(raw: string): ReportContent | null {
 					if (!topic) {
 						break;
 					}
-					const observation = OBSERVATION_PATTERN.exec(text);
-					const action = ACTION_PATTERN.exec(text);
-					if (observation) {
-						topic.observation = observation[1].trim() || null;
-					} else if (action) {
-						topic.action = action[1].trim() || null;
+					const priority = PRIORITY_PATTERN.exec(text);
+					if (priority) {
+						topic.rank = Number.parseInt(priority[1], 10);
+					} else {
+						const observation = OBSERVATION_PATTERN.exec(text);
+						const action = ACTION_PATTERN.exec(text);
+						if (observation) {
+							topic.observation = observation[1].trim() || null;
+						} else if (action) {
+							topic.action = action[1].trim() || null;
+						}
 					}
 					break;
 				}

@@ -194,6 +194,24 @@ test('parser: structured view of the JA accommodation report', async () => {
 	assert.ok(staffing.observation && staffing.action);
 	assert.equal(parsed.nextSteps.length, 3);
 	assert.match(parsed.footnote ?? '', /ルールベース/);
+
+	// Recommendations are ranked: ranks run 1..N, the digital topic leads for
+	// this transcript, the summary lists topics in the same ranked order, and
+	// the markdown carries the labeled rank line.
+	const ranks = parsed.topics.map((topic) => topic.rank);
+	assert.deepEqual(
+		ranks,
+		ranks.map((_, index) => index + 1),
+		'ranks are 1..N in display order',
+	);
+	assert.match(parsed.topics[0].title, /予約・受注のデジタル化/);
+	assert.match(content, /- 優先度: 1（ルールベースの順位）/);
+	const summaryText = parsed.summary.join('\n');
+	assert.ok(
+		summaryText.indexOf('予約・受注のデジタル化')
+			< summaryText.indexOf('人材の確保と定着'),
+		'summary lists topics in ranked order',
+	);
 });
 
 test('analyzer+parser: EN accommodation report with EN conventions', async () => {
@@ -247,6 +265,16 @@ test('analyzer+parser: EN accommodation report with EN conventions', async () =>
 	assert.ok(parsed.buildVsBuy.length >= 2);
 	assert.ok(parsed.topics.length >= 6);
 	assert.equal(parsed.nextSteps.length, 3);
+
+	// Ranking conventions hold in English too.
+	const enRanks = parsed.topics.map((topic) => topic.rank);
+	assert.deepEqual(
+		enRanks,
+		enRanks.map((_, index) => index + 1),
+		'ranks are 1..N in display order',
+	);
+	assert.match(parsed.topics[0].title, /Digital booking and order channels/);
+	assert.match(content, /- Priority: 1 \(rule-based order\)/);
 });
 
 test('analyzer+parser: the shared flow template avoids inn-specific claims', async () => {
@@ -273,6 +301,11 @@ test('analyzer+parser: the shared flow template avoids inn-specific claims', asy
 	assert.ok(parsed.costs.items.some((item) => item.includes('円')));
 	assert.ok(parsed.buildVsBuy.length >= 2);
 	assert.ok(parsed.topics.length >= 6);
+	assert.equal(
+		parsed.topics[0].rank,
+		1,
+		'the shared flow template ranks too',
+	);
 });
 
 test('analyzer: no matched topics yields honest empty-state sections', async () => {
@@ -354,6 +387,7 @@ test('parser: legacy report without the new sections parses partially', async ()
 	assert.equal(parsed.meta.generatedAt, '2026-11-25T09:00:00.000Z');
 	assert.equal(parsed.topics.length, 1);
 	assert.equal(parsed.nextSteps.length, 3);
+	assert.equal(parsed.topics[0].rank, null, 'legacy topics carry no rank');
 	assert.equal(parsed.flow, null, 'no flow section in legacy content');
 	assert.equal(parsed.timeSavings, null);
 	assert.equal(parsed.workload, null);

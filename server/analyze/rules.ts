@@ -13,6 +13,8 @@ export type TopicCopy = { title: string; observation: string; action: string };
 
 export type Topic = {
 	id: string;
+	/** Rule-based priority for ranking the report's recommendations (1 = highest). */
+	priority: number;
 	keywords: { ja: string[]; en: string[] };
 	ja: TopicCopy;
 	en: TopicCopy;
@@ -21,6 +23,7 @@ export type Topic = {
 export const TOPICS: Topic[] = [
 	{
 		id: 'staffing',
+		priority: 2,
 		keywords: {
 			ja: [
 				'人手',
@@ -61,6 +64,7 @@ export const TOPICS: Topic[] = [
 	},
 	{
 		id: 'seasonality',
+		priority: 3,
 		keywords: {
 			ja: [
 				'繁忙',
@@ -100,6 +104,7 @@ export const TOPICS: Topic[] = [
 	},
 	{
 		id: 'customers',
+		priority: 4,
 		keywords: {
 			ja: [
 				'集客',
@@ -139,6 +144,7 @@ export const TOPICS: Topic[] = [
 	},
 	{
 		id: 'pricing',
+		priority: 5,
 		keywords: {
 			ja: ['料金', '価格', '値段', '値上げ', '単価', '原価', 'コスト'],
 			en: ['price', 'pricing', 'rate', 'cost', 'margin', 'fee'],
@@ -156,6 +162,7 @@ export const TOPICS: Topic[] = [
 	},
 	{
 		id: 'digital',
+		priority: 1,
 		keywords: {
 			ja: [
 				'予約',
@@ -195,6 +202,7 @@ export const TOPICS: Topic[] = [
 	},
 	{
 		id: 'finance',
+		priority: 6,
 		keywords: {
 			ja: [
 				'資金',
@@ -232,6 +240,7 @@ export const TOPICS: Topic[] = [
 	},
 	{
 		id: 'goals',
+		priority: 7,
 		keywords: {
 			ja: [
 				'目標',
@@ -344,14 +353,14 @@ const INN_RECOMMENDATION: OpsRecommendation = {
 	},
 	timeSavings: {
 		ja: [
-			'予約1件あたりの転記・連絡・手配の確認作業: 約5分減らせる可能性があります（推定）。',
-			'1日5件と仮定すると、月あたり約10時間の削減が見込まれます（推定）。',
+			'現在の時間: 予約1件あたり、転記・連絡・手配の確認に約5分（推定）。',
+			'削減の見込み: 1日5件と仮定すると、月あたり約10時間（推定）。',
 			'前提: 予約が現在は電話や手書き中心であること。実際の件数と時間は事業により異なります。',
 			ESTIMATE_LABEL_JA,
 		],
 		en: [
-			'Transcription, phone tag and dispatch checks per booking: about 5 minutes less (estimate).',
-			'Assuming 5 bookings per day, that is about 10 hours per month (estimate).',
+			'Time today: about 5 minutes per booking for transcription, phone tag and dispatch checks (estimate).',
+			'Potential saving: assuming 5 bookings per day, about 10 hours per month (estimate).',
 			'Assumption: bookings are currently taken by phone or on paper. Actual volumes and times differ by business.',
 			ESTIMATE_LABEL_EN,
 		],
@@ -430,14 +439,14 @@ const GENERIC_RECOMMENDATION: OpsRecommendation = {
 	},
 	timeSavings: {
 		ja: [
-			'予約・受注1件あたりの転記・連絡・手配の確認作業: 約5分減らせる可能性があります（推定）。',
-			'1日5件と仮定すると、月あたり約10時間の削減が見込まれます（推定）。',
+			'現在の時間: 予約・受注1件あたり、転記・連絡・手配の確認に約5分（推定）。',
+			'削減の見込み: 1日5件と仮定すると、月あたり約10時間（推定）。',
 			'前提: 予約や受注が現在は電話や手書き中心であること。実際の件数と時間は事業により異なります。',
 			ESTIMATE_LABEL_JA,
 		],
 		en: [
-			'Transcription, phone tag and dispatch checks per order: about 5 minutes less (estimate).',
-			'Assuming 5 orders per day, that is about 10 hours per month (estimate).',
+			'Time today: about 5 minutes per order for transcription, phone tag and dispatch checks (estimate).',
+			'Potential saving: assuming 5 orders per day, about 10 hours per month (estimate).',
 			'Assumption: bookings and orders are currently taken by phone or on paper. Actual volumes and times differ by business.',
 			ESTIMATE_LABEL_EN,
 		],

@@ -28,6 +28,7 @@ export type ReportPageCopy = {
 	};
 	topicObservation: string;
 	topicAction: string;
+	topicRank: string;
 	pendingTitle: string;
 	pendingBody: string;
 	failedTitle: string;

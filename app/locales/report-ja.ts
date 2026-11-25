@@ -29,6 +29,7 @@ export const reportJa: ReportPageCopy = {
 	},
 	topicObservation: '観察',
 	topicAction: '推奨アクション',
+	topicRank: '優先度',
 	pendingTitle: 'レポートを作成しています',
 	pendingBody: '準備ができたら、このページは自動的に切り替わります。',
 	failedTitle: 'レポートの作成に失敗しました',

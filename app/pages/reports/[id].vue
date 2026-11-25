@@ -287,6 +287,7 @@
 							>
 								<ReportTopicCard
 									:topic="topic"
+									:rank-label="copy.topicRank"
 									:observation-label="copy.topicObservation"
 									:action-label="copy.topicAction"
 								/>

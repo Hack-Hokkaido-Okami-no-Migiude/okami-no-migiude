@@ -11,11 +11,13 @@ export function generateReportContent(
 	generatedAt: string,
 ): string {
 	const haystack = transcript.toLowerCase();
+	// Recommendations are ranked by the rule-based topic priority (1 = highest);
+	// Array.prototype.sort is stable, so equal priorities keep the table order.
 	const matched = TOPICS.filter((topic) =>
 		[...topic.keywords.ja, ...topic.keywords.en].some((keyword) =>
 			haystack.includes(keyword.toLowerCase()),
 		),
-	);
+	).sort((a, b) => a.priority - b.priority);
 	return snapshot.locale === 'ja' ?
 			renderJa(matched, snapshot, generatedAt)
 		:	renderEn(matched, snapshot, generatedAt);
@@ -130,7 +132,8 @@ function renderJa(
 		:	'- 今回の面談記録からは具体的な論点を自動検出できませんでした。まずは下記の「次のステップ」から着手してください。';
 	const sections = matched
 		.map(
-			(topic) => `### ${topic.ja.title}
+			(topic, index) => `### ${topic.ja.title}
+- 優先度: ${index + 1}（ルールベースの順位）
 - 観察: ${topic.ja.observation}
 - 推奨アクション: ${topic.ja.action}`,
 		)
@@ -172,7 +175,8 @@ function renderEn(
 		:	'- No specific topics could be auto-detected from this interview. Start with the next steps below.';
 	const sections = matched
 		.map(
-			(topic) => `### ${topic.en.title}
+			(topic, index) => `### ${topic.en.title}
+- Priority: ${index + 1} (rule-based order)
 - Observation: ${topic.en.observation}
 - Recommended action: ${topic.en.action}`,
 		)

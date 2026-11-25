@@ -23,6 +23,7 @@
 //   `- Classification: rule-based estimate…`, parsed into `estimateLabel`.
 // - `## 既製品と独自開発` / `## Off-the-shelf or custom` bullets → buildVsBuy.
 // - `## 論点ごとの整理` / `## Topic-by-topic review` H3 topics with
+//   `- 優先度: N…` / `- Priority: N…` (rank, 1 = highest),
 //   `- 観察: ` / `- Observation: ` and `- 推奨アクション: ` /
 //   `- Recommended action: ` bullets → `topics`.
 // - `## 次のステップ` / `## Next steps` ordered list → `nextSteps`.
@@ -52,6 +53,8 @@ export type ReportEstimateSection = {
 
 export type ReportTopicContent = {
 	title: string;
+	/** Rank among this report's recommendations (1 = highest); null when absent. */
+	rank: number | null;
 	observation: string | null;
 	action: string | null;
 };
