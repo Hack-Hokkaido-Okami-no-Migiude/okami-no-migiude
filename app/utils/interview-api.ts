@@ -110,7 +110,11 @@ function assertResearchSurface(
 		|| !RESEARCH_STATUSES.has(surface.status)
 		|| !(surface.cases === null || Array.isArray(surface.cases))
 	) {
-		throw new ApiFailure(status, 'internal', 'Unexpected interview response');
+		throw new ApiFailure(
+			status,
+			'internal',
+			'Unexpected interview response',
+		);
 	}
 }
 
@@ -124,7 +128,11 @@ function assertAssessmentSurface(
 		|| !ASSESSMENT_STATUSES.has(surface.status)
 		|| !(surface.reportId === null || typeof surface.reportId === 'string')
 	) {
-		throw new ApiFailure(status, 'internal', 'Unexpected interview response');
+		throw new ApiFailure(
+			status,
+			'internal',
+			'Unexpected interview response',
+		);
 	}
 }
 

@@ -167,7 +167,10 @@ test('readWebhookInterviewId picks the interview id dynamic variable', () => {
 
 test('readWebhookInterviewId returns empty for junk shapes', () => {
 	assert.equal(readWebhookInterviewId({}), '');
-	assert.equal(readWebhookInterviewId({ conversation_initiation_client_data: null }), '');
+	assert.equal(
+		readWebhookInterviewId({ conversation_initiation_client_data: null }),
+		'',
+	);
 	assert.equal(
 		readWebhookInterviewId({
 			conversation_initiation_client_data: { dynamic_variables: 'nope' },

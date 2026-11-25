@@ -106,9 +106,7 @@ export function secretMatches(value: string, expected: string): boolean {
  * lookup key; malformed payloads simply match nothing. Unknown keys and
  * value types are ignored (built-in `system__` variables share the object).
  */
-export function readWebhookInterviewId(
-	data: Record<string, unknown>,
-): string {
+export function readWebhookInterviewId(data: Record<string, unknown>): string {
 	const initiation = data.conversation_initiation_client_data;
 	if (
 		!initiation
@@ -117,9 +115,8 @@ export function readWebhookInterviewId(
 	) {
 		return '';
 	}
-	const variables = (
-		initiation as { dynamic_variables?: unknown }
-	).dynamic_variables;
+	const variables = (initiation as { dynamic_variables?: unknown })
+		.dynamic_variables;
 	if (
 		!variables
 		|| typeof variables !== 'object'

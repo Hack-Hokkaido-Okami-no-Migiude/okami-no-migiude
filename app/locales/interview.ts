@@ -82,12 +82,10 @@ const ja = {
 		agentName: 'シマ エナガ',
 		entering: '面談を開始しました。シマ エナガがまもなく話しかけます。',
 		resumed: '進行中の面談を再開しました。',
-		inCall:
-			'シマ エナガと話しています。終えるときは、ウィジェットの終了ボタンを使うか、下の「面談を終了する」を選んでください。',
+		inCall: 'シマ エナガと話しています。終えるときは、ウィジェットの終了ボタンを使うか、下の「面談を終了する」を選んでください。',
 		endButton: '面談を終了する',
 		ending: '終了しています…',
-		ended:
-			'面談を終了しました。記録の保存を確認しています。このページを離れても、記録は自動で保存されます。',
+		ended: '面談を終了しました。記録の保存を確認しています。このページを離れても、記録は自動で保存されます。',
 		backHome: 'ホームに戻る',
 		checkAgain: '面談の状態をもう一度確認する',
 	},
@@ -109,8 +107,7 @@ const ja = {
 			'報告書を作成しています。完成しましたら、ご登録のメールアドレスにお知らせします。',
 		unavailable:
 			'報告書の自動作成がこの環境で利用できないため、報告書は作成されません。面談の記録は保存されています。担当職員に直接ご相談ください。',
-		failed:
-			'報告書の作成に失敗しました。面談の記録は保存されています。時間をおいて再度確認するか、担当職員に直接ご相談ください。',
+		failed: '報告書の作成に失敗しました。面談の記録は保存されています。時間をおいて再度確認するか、担当職員に直接ご相談ください。',
 	},
 	demoActive: {
 		title: '面談が進行中です',
@@ -214,12 +211,10 @@ const en: InterviewStrings = {
 		entering:
 			'The interview has started. Shima Enaga will speak to you shortly.',
 		resumed: 'The interview in progress has been resumed.',
-		inCall:
-			'You are talking with Shima Enaga. When you are done, use the widget’s end button or choose “End the interview” below.',
+		inCall: 'You are talking with Shima Enaga. When you are done, use the widget’s end button or choose “End the interview” below.',
 		endButton: 'End the interview',
 		ending: 'Ending…',
-		ended:
-			'The interview has ended. We are waiting for the record to be saved. You can leave this page; the record is saved automatically either way.',
+		ended: 'The interview has ended. We are waiting for the record to be saved. You can leave this page; the record is saved automatically either way.',
 		backHome: 'Back to home',
 		checkAgain: 'Check the interview status again',
 	},
@@ -231,8 +226,7 @@ const en: InterviewStrings = {
 			'One initiative was researched. It is used in the conversation as material for comparison.',
 		completed:
 			'{count} initiatives were researched. They are used in the conversation as material for comparison.',
-		failed:
-			'The research was unavailable. The interview continues with your own words only.',
+		failed: 'The research was unavailable. The interview continues with your own words only.',
 		notConnected:
 			'Research is not available for this interview. The interview continues with your own words only.',
 		caseLabel: 'Researched initiatives',
@@ -242,8 +236,7 @@ const en: InterviewStrings = {
 			'The report is being prepared. We will notify your registered email address when it is ready.',
 		unavailable:
 			'Automated report preparation is not available in this environment, so no report is created. Your interview record is saved. Please consult the designated staff directly.',
-		failed:
-			'Report preparation failed. Your interview record is saved. Please check again later or consult the designated staff directly.',
+		failed: 'Report preparation failed. Your interview record is saved. Please check again later or consult the designated staff directly.',
 	},
 	demoActive: {
 		title: 'An interview is in progress',

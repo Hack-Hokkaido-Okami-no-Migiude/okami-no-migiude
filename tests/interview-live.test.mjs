@@ -88,7 +88,8 @@ const DEEP_RESEARCH_DOSSIER = {
 const TRANSCRIPT_TURNS = [
 	{
 		role: 'agent',
-		message: 'こんにちは。シマ エナガと申します。はじめにお伝えします。私は人ではなく、AI、つまりコンピューターの声です。',
+		message:
+			'こんにちは。シマ エナガと申します。はじめにお伝えします。私は人ではなく、AI、つまりコンピューターの声です。',
 	},
 	{ role: 'user', message: 'こんにちは。旅館のことを話します。' },
 	{
@@ -313,14 +314,19 @@ function postCallBody(interviewId, extraData = {}) {
 }
 
 function signedPostCall(baseUrl, raw, secret) {
-	return requestRaw(baseUrl, '/api/voice/elevenlabs/post-call', {
-		'content-type': 'application/json',
-		'elevenlabs-signature': signWebhook(
-			raw,
-			Math.floor(Date.now() / 1000),
-			secret,
-		),
-	}, raw);
+	return requestRaw(
+		baseUrl,
+		'/api/voice/elevenlabs/post-call',
+		{
+			'content-type': 'application/json',
+			'elevenlabs-signature': signWebhook(
+				raw,
+				Math.floor(Date.now() / 1000),
+				secret,
+			),
+		},
+		raw,
+	);
 }
 
 async function startInterviewServer({ label, dir, extraEnv = {} }) {
@@ -537,7 +543,11 @@ test(
 				'/api/interviews/start',
 				{ jar, body: { consent: true, mode: 'demo' } },
 			);
-			expectErrorCode('second start blocked', demoStart, 'already_submitted');
+			expectErrorCode(
+				'second start blocked',
+				demoStart,
+				'already_submitted',
+			);
 		} finally {
 			await server.close();
 		}
@@ -590,10 +600,15 @@ test(
 				return current.json.interview?.research?.status === 'completed';
 			});
 			const cases = (
-				await request(server.baseUrl, 'GET', '/api/interviews/current', {
-					jar,
-					origin: null,
-				})
+				await request(
+					server.baseUrl,
+					'GET',
+					'/api/interviews/current',
+					{
+						jar,
+						origin: null,
+					},
+				)
 			).json.interview.research.cases;
 			assert.deepEqual(cases, EXPECTED_CASES);
 
@@ -602,18 +617,22 @@ test(
 			const delivered = await signedPostCall(server.baseUrl, raw);
 			expectStatus('post-call signed', delivered, 200);
 
-			await pollUntil('assessment completed', async () => {
-				const current = await request(
-					server.baseUrl,
-					'GET',
-					'/api/interviews/current',
-					{ jar, origin: null },
-				);
-				return (
-					current.json.interview?.assessment?.status === 'completed'
-					&& current.json.reportId !== null
-				);
-			}, 90_000);
+			await pollUntil(
+				'assessment completed',
+				async () => {
+					const current = await request(
+						server.baseUrl,
+						'GET',
+						'/api/interviews/current',
+						{ jar, origin: null },
+					);
+					return (
+						current.json.interview?.assessment?.status
+							=== 'completed' && current.json.reportId !== null
+					);
+				},
+				90_000,
+			);
 
 			const current = await request(
 				server.baseUrl,
@@ -645,7 +664,10 @@ test(
 			assert.match(assessmentBody.inputs.business, /湯の花旅館/);
 			const evidence = JSON.parse(assessmentBody.inputs.research_cases);
 			assert.deepEqual(evidence.in_call_cases, EXPECTED_CASES);
-			assert.match(evidence.deep_research_report.answer, /深掘り調査デモ/);
+			assert.match(
+				evidence.deep_research_report.answer,
+				/深掘り調査デモ/,
+			);
 
 			withDb(dir, (db) => {
 				const row = interviewRow(dir, interview.id);

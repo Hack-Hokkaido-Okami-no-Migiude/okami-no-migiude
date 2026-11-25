@@ -701,7 +701,11 @@ test(
 				'/api/voice/sessions/current',
 				{ jar },
 			);
-			expectStatus('current before the legacy session', emptyCurrent, 200);
+			expectStatus(
+				'current before the legacy session',
+				emptyCurrent,
+				200,
+			);
 			assert.deepEqual(emptyCurrent.json, { session: null });
 
 			seedLegacyVoiceSession(dir, ownerUserId(dir, OWNER_A.email));
@@ -882,7 +886,10 @@ test(
 				server.baseUrl,
 				'/api/voice/elevenlabs/post-call',
 				{ 'content-type': 'application/json' },
-				postCallBody(LEGACY_CONVERSATION_ID, VOICE_ENV.ELEVENLABS_AGENT_ID),
+				postCallBody(
+					LEGACY_CONVERSATION_ID,
+					VOICE_ENV.ELEVENLABS_AGENT_ID,
+				),
 			);
 			expectStatus('post-call without a signature', unsigned, 401);
 			expectErrorCode(

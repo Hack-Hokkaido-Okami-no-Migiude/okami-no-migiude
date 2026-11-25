@@ -25,11 +25,10 @@ function toResearchTarget(row: InterviewRow): ResearchTarget {
 		status: row.research_status === 'polling' ? 'polling' : 'queued',
 		deadline: row.research_deadline,
 		taskId: row.research_task_id,
-		business:
-			parseVoiceBusiness(row.business_json) ?? {
-				businessName: '',
-				location: '',
-			},
+		business: parseVoiceBusiness(row.business_json) ?? {
+			businessName: '',
+			location: '',
+		},
 	};
 }
 

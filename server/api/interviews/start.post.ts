@@ -25,10 +25,7 @@ import { inTransaction } from '../../utils/db';
 import { newId } from '../../utils/ids';
 import { requireOneOf } from '../../utils/validate';
 import { requireOwner } from '../../utils/session';
-import {
-	agentConfigured,
-	voiceConfigured,
-} from '../../voice/config';
+import { agentConfigured, voiceConfigured } from '../../voice/config';
 import { VOICE_RESEARCH_TIMEOUT_MS } from '../../voice/jobs';
 
 const HOUR_MS = 60 * 60 * 1000;
