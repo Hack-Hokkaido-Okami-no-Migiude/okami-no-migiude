@@ -1494,6 +1494,14 @@ test(
 				staffMailA.body.includes(`/reports/${reportAId}`),
 				true,
 			);
+			assert.ok(
+				staffMailA.subject.includes(OWNER_A.profile.businessName),
+				'staff ready mail subject names the business',
+			);
+			assert.ok(
+				staffMailA.body.includes(OWNER_A.profile.businessName),
+				'staff ready mail body names the business',
+			);
 			const dupCheck = withDb((db) =>
 				db
 					.prepare(
