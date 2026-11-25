@@ -154,9 +154,9 @@
 			</button>
 		</section>
 
-		<!-- The consent gate comes before the widget: the agent conversation
-		     cannot begin, and the widget is neither offered nor loaded, until
-		     all three consents are given. -->
+		<!-- The consent gate comes before the conversation: the WebRTC session
+		     cannot be minted or started, and no agent surface is offered or
+		     loaded, until all three consents are given. -->
 		<section
 			v-else-if="flow.phase.value === 'consent'"
 			class="interview-page__section"
@@ -194,18 +194,13 @@
 			>
 				{{ errorText }}
 			</p>
-
-			<!-- The widget is mounted only here, after consent and a
-			     successful live start. -->
-			<InterviewAgentWidget
-				v-if="flow.phase.value === 'live' && widgetReady"
-				class="interview-page__widget"
-				:agent-id="flow.availability.value?.agentId ?? ''"
-				:interview-id="flow.interview.value?.id ?? ''"
-				:language="locale"
-				:business-name="profileValue('businessName')"
-				:location="profileValue('municipality')"
-			/>
+			<p
+				v-if="callFailureText !== null"
+				class="notice"
+				role="alert"
+			>
+				{{ callFailureText }}
+			</p>
 
 			<div class="interview-page__columns">
 				<div class="interview-page__left">
@@ -306,19 +301,15 @@
 	} from 'vue';
 	import {
 		createInterviewClient,
+		type ConversationGrant,
 		type InterviewHttp,
 	} from '../utils/interview-api.ts';
 	import type { ConsentsState } from '../utils/interview-consent.ts';
-	import InterviewAgentWidget from '../components/interview/InterviewAgentWidget.vue';
 	import InterviewConsentGate from '../components/interview/InterviewConsentGate.vue';
 	import type { SessionUser } from '../../shared/types/domain.ts';
+	import { useInterviewConversation } from '../composables/useInterviewConversation.ts';
 	import { createInterviewFlow } from '../composables/useInterviewFlow.ts';
 	import { interviewStrings } from '../locales/interview.ts';
-
-	// The widget embed is loaded only when the widget is about to mount —
-	// never on the consent or intro views.
-	const WIDGET_EMBED_URL =
-		'https://unpkg.com/@elevenlabs/convai-widget-embed@0.28.0/dist/index.js';
 
 	const { locale } = useAppLocale();
 	const { user, refreshSession } = useOwnerSession();
@@ -357,30 +348,13 @@
 	);
 	const flow = createInterviewFlow({ client });
 
-	// The widget embed is loaded only while the conversation is live — after
-	// consent completes and the server issued the interview id. The getter
-	// must stay declared after `flow` (it reads the phase during SSR too).
-	useHead({
-		script: () =>
-			flow.phase.value === 'live' ?
-				[
-					{
-						src: WIDGET_EMBED_URL,
-						async: true,
-						tagPosition: 'bodyClose' as const,
-					},
-				]
-			:	[],
-	});
+	// The live conversation runs from the server-minted token the flow
+	// machine fetches on entering the live phase; the controller owns the
+	// WebRTC session (connect state, failures, end).
+	const chat = useInterviewConversation();
 
 	const consentStarting = ref(false);
 	const ending = ref(false);
-
-	const widgetReady = computed(
-		() =>
-			(flow.availability.value?.agentId ?? '').length > 0
-			&& (flow.interview.value?.id ?? '').length > 0,
-	);
 
 	function profileValue(key: 'businessName' | 'municipality'): string {
 		const sessionUser = user.value as SessionUser | null;
@@ -398,11 +372,22 @@
 		return strings.value.errors[code];
 	});
 
+	const callFailureText = computed(() => {
+		const failure = chat.failure.value;
+		if (failure === null) {
+			return null;
+		}
+		return strings.value.callFailures[failure];
+	});
+
 	const resumed = ref(false);
 
 	const liveNotice = computed(() => {
 		if (flow.phase.value === 'ended') {
 			return strings.value.live.ended;
+		}
+		if (chat.callState.value === 'connecting') {
+			return strings.value.live.entering;
 		}
 		if (resumed.value) {
 			return strings.value.live.resumed;
@@ -469,6 +454,7 @@
 		}
 		consentStarting.value = true;
 		resumed.value = false;
+		chat.clearFailure();
 		try {
 			await flow.start();
 		} finally {
@@ -476,19 +462,71 @@
 		}
 	}
 
-	function onEnd() {
+	// A minted grant starts the WebRTC conversation. It arrives only after
+	// the consent gate completed (the machine mints on live entry), so the
+	// controller here never has to police consent itself.
+	watch(
+		() => flow.conversation.value,
+		(grant: ConversationGrant | null) => {
+			if (
+				grant === null
+				|| chat.callState.value === 'connecting'
+				|| chat.callState.value === 'in-call'
+			) {
+				return;
+			}
+			void chat.start({
+				conversationToken: grant.conversationToken,
+				interviewId: flow.interview.value?.id ?? '',
+				language: locale.value,
+				businessName: profileValue('businessName'),
+				location: profileValue('municipality'),
+			});
+		},
+	);
+
+	// The conversation can end on its own (agent hang-up, dropped link):
+	// leave the call view and keep monitoring for the webhook outcome. Once
+	// it is connected, hand off research that already completed while the
+	// session was still connecting (a resumed interview can arrive that way).
+	watch(
+		() => chat.callState.value,
+		(state) => {
+			if (state === 'in-call') {
+				chat.handOffResearch(flow.research.value);
+				return;
+			}
+			if (state === 'ended' && flow.phase.value === 'live') {
+				flow.notifyCallEnded();
+			}
+		},
+	);
+
+	// The researched cases reach the agent once they exist (the composable
+	// hands them off exactly once, and only while the call is live).
+	watch(
+		() => flow.research.value,
+		(research) => {
+			chat.handOffResearch(research);
+		},
+	);
+
+	async function onEnd() {
 		if (ending.value) {
 			return;
 		}
 		ending.value = true;
-		// Unmounting the widget ends the call; the transcript arrives via
-		// the server-to-server webhook and the poll picks up the outcome.
+		// endSession ends the WebRTC conversation; the transcript arrives
+		// via the server-to-server webhook and the poll picks up the
+		// outcome.
+		await chat.end();
 		flow.notifyCallEnded();
 		ending.value = false;
 	}
 
 	async function onRestart() {
 		resumed.value = true;
+		chat.clearFailure();
 		await flow.restart();
 	}
 
@@ -540,7 +578,12 @@
 		},
 	);
 
-	onBeforeUnmount(stopPolling);
+	onBeforeUnmount(() => {
+		stopPolling();
+		// Leaving the page mid-call ends the session so the transcript is
+		// finalized (the webhook delivers it either way).
+		void chat.end();
+	});
 
 	onMounted(async () => {
 		await refreshSession();
@@ -611,10 +654,6 @@
 			margin: 0;
 			overflow-wrap: anywhere;
 		}
-	}
-
-	.interview-page__widget {
-		margin-bottom: 1.5rem;
 	}
 
 	.interview-page__columns {

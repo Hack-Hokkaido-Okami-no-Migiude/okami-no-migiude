@@ -37,12 +37,15 @@
 //                    no agent configured ⇒ honest unavailable panel and NO
 //                    POST /api/interviews/start in devtools. With an agent
 //                    configured the consent gate blocks start until all
-//                    three approvals; then the embedded ElevenLabs agent
-//                    starts (mode=live) — no scripted sample UI, no timer.
+//                    three approvals; then the page mints a server-side
+//                    conversation token (POST /api/voice/sessions) and
+//                    starts the WebRTC conversation (mode=live) — no
+//                    scripted sample UI, no timer.
 //   4. Interview   — the agent conversation is agent-managed (end it from
-//                    the page's end action); the widget carries the
-//                    interview id dynamic variable; the transcript lands via
-//                    the server-to-server webhook and the report appears.
+//                    the page's end action, which ends the WebRTC session);
+//                    the transcript lands via the server-to-server webhook
+//                    (matched by the mint-time conversation↔interview
+//                    record) and the report appears.
 //   5. /reports/:id — 「自動下書き（ルールベース）」/ "Automated draft
 //                    (rule-based)" visible; download gives report-<id>.md;
 //                    consultation shows a timestamp and a repeat click does
@@ -64,6 +67,7 @@
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
+import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -342,6 +346,69 @@ function startServer() {
 	}
 	start.running = running;
 	return start;
+}
+
+// ---------------------------------------------------------------------------
+// Loopback ElevenLabs conversation-token stub (the mint endpoint's provider)
+// ---------------------------------------------------------------------------
+
+/**
+ * The server's `providers.issueSession()` calls
+ * `GET {ELEVENLABS_API_BASE_URL}/v1/convai/conversation/token?agent_id=…`
+ * with the API key header. Pointing `ELEVENLABS_API_BASE_URL` at this
+ * loopback stub keeps the agent-configured interview surface hermetic: the
+ * page's mint (POST /api/voice/sessions) succeeds without reaching the real
+ * ElevenLabs API. Mirrors the loopback provider stubs in
+ * tests/interview-live.test.mjs / tests/voice-journey.test.mjs.
+ */
+function startElevenLabsStub(agentId) {
+	const state = { tokensIssued: 0, agentIds: [] };
+	const server = http.createServer((req, res) => {
+		res.setHeader('content-type', 'application/json');
+		const url = new URL(req.url, 'http://stub');
+		if (
+			url.pathname === '/v1/convai/conversation/token'
+			&& (req.method === 'GET' || req.method === 'POST')
+		) {
+			const requested = url.searchParams.get('agent_id') ?? '';
+			state.agentIds.push(requested);
+			if (requested !== agentId) {
+				res.writeHead(400);
+				res.end(JSON.stringify({ detail: 'unknown agent_id' }));
+				return;
+			}
+			state.tokensIssued += 1;
+			res.writeHead(200);
+			res.end(
+				JSON.stringify({
+					conversation_id: `conv_browser_${state.tokensIssued}`,
+					token: `tok_browser_${state.tokensIssued}`,
+				}),
+			);
+			return;
+		}
+		res.writeHead(404);
+		res.end(JSON.stringify({ detail: 'not found' }));
+	});
+	return new Promise((resolve) => {
+		server.listen(0, '127.0.0.1', () => {
+			resolve({
+				server,
+				state,
+				baseUrl: `http://127.0.0.1:${server.address().port}`,
+				close: () =>
+					new Promise((resolveClose) => {
+						server.close(() => resolveClose());
+						// Node keeps the process alive on open keep-alives;
+						// force-stop after a grace period.
+						setTimeout(() => {
+							server.closeAllConnections?.();
+							resolveClose();
+						}, 2_000).unref();
+					}),
+			});
+		});
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -1583,8 +1650,8 @@ async function runSignInChecks(
 
 // Interview UI without an agent (O12): the honest unavailable surface.
 // The interview surface without a configured agent (O12): the page must
-// show the honest unavailable panel, attempt no conversation, and never
-// mount the widget or its embed script. No scripted fallback UI exists.
+// show the honest unavailable panel, attempt no conversation or mint, and
+// never mount any agent embed artifacts. No scripted fallback UI exists.
 async function runInterviewUiChecks(cdp, contextId, baseUrl, artifactsDir) {
 	const page = await openPage(cdp, contextId);
 	const waitFor = (expression) =>
@@ -1608,7 +1675,8 @@ async function runInterviewUiChecks(cdp, contextId, baseUrl, artifactsDir) {
 		const started = page.netLog.some(
 			(entry) =>
 				entry.method === 'POST'
-				&& entry.url.endsWith('/api/interviews/start'),
+				&& (entry.url.endsWith('/api/interviews/start')
+					|| entry.url.endsWith('/api/voice/sessions')),
 		);
 		const widgetArtifacts = await evaluate(
 			cdp,
@@ -1621,8 +1689,8 @@ async function runInterviewUiChecks(cdp, contextId, baseUrl, artifactsDir) {
 			'interview.flow',
 			started || widgetArtifacts ? 'FAIL' : 'PASS',
 			started || widgetArtifacts ?
-				'the page attempted a conversation or mounted widget artifacts while unconfigured'
-			:	'no start call, no widget, no embed script on the unconfigured surface',
+				'the page attempted a conversation or mint or mounted widget artifacts while unconfigured'
+			:	'no start or mint call, no widget, no embed script on the unconfigured surface',
 		);
 		await screenshot(cdp, page, '31-interview-unavailable', artifactsDir);
 	} catch (error) {
@@ -1636,12 +1704,19 @@ async function runInterviewUiChecks(cdp, contextId, baseUrl, artifactsDir) {
 }
 
 // The interview surface with an agent configured (O3/O4/O2): the consent
-// gate completes before the widget is offered or loaded, the started
-// interview's id travels to the widget as a dynamic variable, and the
-// page's end action ends the conversation early. The third-party embed is
-// stubbed so the headless run stays local; the widget element itself is
-// still mounted by the page (which is what we assert).
-async function runInterviewAgentChecks(cdp, baseUrl, artifactsDir) {
+// gate completes before any conversation is minted or started, the live
+// phase mints a WebRTC conversation token from the loopback ElevenLabs
+// stub, and the page's end action ends the conversation early. The
+// headless run has no microphone, so the realtime audio itself stays
+// Unverified — these checks assert the consent-before-mint order, the mint
+// wiring and the flow phases only.
+async function runInterviewAgentChecks(
+	cdp,
+	baseUrl,
+	tokenStub,
+	agentId,
+	artifactsDir,
+) {
 	const owner = {
 		email: `agent-owner-${Date.now()}@example.test`,
 		password: 'agent-owner-pass-1234',
@@ -1677,46 +1752,13 @@ async function runInterviewAgentChecks(cdp, baseUrl, artifactsDir) {
 		);
 	const waitFor = (expression) =>
 		pollUntil(expression, () => evaluate(cdp, page, expression));
-	try {
-		// Serve a harmless stub for the third-party embed: no unpkg, no
-		// ElevenLabs network in the headless run.
-		const stubBody = Buffer.from(
-			'/* widget embed stubbed for the local browser journey */',
-		).toString('base64');
-		await cdp.send(
-			'Fetch.enable',
-			{
-				patterns: [
-					{ urlPattern: '*unpkg.com*', requestStage: 'Request' },
-				],
-			},
-			page.sessionId,
+	const mintCalls = () =>
+		page.netLog.filter(
+			(entry) =>
+				entry.method === 'POST'
+				&& entry.url.endsWith('/api/voice/sessions'),
 		);
-		const fulfillPaused = (params) =>
-			cdp
-				.send(
-					'Fetch.fulfillRequest',
-					{
-						requestId: params.requestId,
-						responseCode: 200,
-						responseHeaders: [
-							{
-								name: 'content-type',
-								value: 'application/javascript',
-							},
-						],
-						body: stubBody,
-					},
-					page.sessionId,
-				)
-				.catch(() => {});
-		const pausedListener = (params, eventSessionId) => {
-			if (eventSessionId === page.sessionId) {
-				void fulfillPaused(params);
-			}
-		};
-		cdp.on('Fetch.requestPaused', pausedListener);
-
+	try {
 		await cdp.send(
 			'Network.setCookie',
 			{
@@ -1747,32 +1789,29 @@ async function runInterviewAgentChecks(cdp, baseUrl, artifactsDir) {
 			"document.querySelector('.interview-consent button')?.disabled",
 		);
 		await click('.interview-consent button');
-		if (
+		const premature =
 			page.netLog.some(
 				(entry) =>
 					entry.method === 'POST'
 					&& entry.url.endsWith('/api/interviews/start'),
-			)
-		) {
+			) || mintCalls().length > 0;
+		if (premature) {
 			throw new Error('The interview started without consent');
 		}
-		const widgetBeforeConsent = await evaluate(
-			cdp,
-			page,
-			`document.querySelector('[data-testid="interview-agent-widget"]') !== null
-				|| [...document.querySelectorAll('script[src]')].some((s) => s.src.includes('unpkg.com'))`,
-		);
+		const mintedBeforeConsent = tokenStub.state.tokensIssued;
 		record(
 			'interview.consent-gate',
-			widgetBeforeConsent ? 'FAIL' : 'PASS',
-			widgetBeforeConsent ?
-				'widget artifacts appeared before consent'
-			:	'start stays disabled until all three approvals; no widget offered or loaded before consent',
+			mintedBeforeConsent === 0 ? 'PASS' : 'FAIL',
+			mintedBeforeConsent === 0 ?
+				'start stays disabled until all three approvals; clicking it makes no /api/interviews/start and no /api/voice/sessions mint request (the token stub issued nothing)'
+			:	`the token stub issued ${mintedBeforeConsent} conversation(s) before consent`,
 		);
 		for (const field of ['processing', 'privacy', 'staff']) {
 			await click(`#interview-consent-${field}`);
 		}
 		await click('.interview-consent button');
+		// The machine mints on live entry, so the live phase never renders
+		// before the mint call has completed.
 		await pollUntil(
 			'interview live',
 			async () => (await state()) === 'live',
@@ -1786,40 +1825,20 @@ async function runInterviewAgentChecks(cdp, baseUrl, artifactsDir) {
 				'a UI timer is rendered (the session length is agent-managed)'
 			:	'agent interview started after consent; no UI timer is rendered',
 		);
-		const widgetVariables = await evaluate(
-			cdp,
-			page,
-			`(() => {
-				const element = document.querySelector('elevenlabs-convai');
-				if (element === null) {
-					return null;
-				}
-				return {
-					agentId: element.getAttribute('agent-id'),
-					dynamicVariables: element.getAttribute('dynamic-variables'),
-				};
-			})()`,
-		);
-		const serverInterviewId = await evaluate(
-			cdp,
-			page,
-			`fetch('/api/interviews/current').then((response) => response.json()).then((data) => data.interview?.id ?? null)`,
-		);
-		let matchedId = false;
-		let widgetAgentId = '';
-		try {
-			const variables = JSON.parse(widgetVariables.dynamicVariables);
-			widgetAgentId = String(widgetVariables.agentId ?? '');
-			matchedId = variables.interview_id === serverInterviewId;
-		} catch {
-			// Malformed attribute: matchedId stays false.
-		}
+		const calls = mintCalls();
+		const issued = tokenStub.state;
+		const mintOk =
+			calls.length === 1
+			&& (calls[0].status === 200 || calls[0].status === 201)
+			&& issued.tokensIssued === 1
+			&& issued.agentIds.length === 1
+			&& issued.agentIds[0] === agentId;
 		record(
-			'interview.dynamic-variable',
-			matchedId && widgetAgentId.length > 0 ? 'PASS' : 'FAIL',
-			matchedId && widgetAgentId.length > 0 ?
-				`widget dynamic_variables.interview_id matches the server-issued interview ${serverInterviewId}`
-			:	`widget variables ${JSON.stringify(widgetVariables)} vs interview id ${serverInterviewId}`,
+			'interview.token-mint',
+			mintOk ? 'PASS' : 'FAIL',
+			mintOk ?
+				`the live phase minted one conversation via POST /api/voice/sessions (HTTP ${calls[0].status}; the loopback token stub issued one token for agent ${issued.agentIds[0]})`
+			:	`mint calls ${JSON.stringify(calls.map((entry) => entry.status))}, token stub issued ${issued.tokensIssued} for ${JSON.stringify(issued.agentIds)}`,
 		);
 		await screenshot(cdp, page, '34-interview-live', artifactsDir);
 		await click('.interview-page__actions button.button-primary');
@@ -1827,20 +1846,28 @@ async function runInterviewAgentChecks(cdp, baseUrl, artifactsDir) {
 			'interview ended',
 			async () => (await state()) === 'ended',
 		);
+		const mintsAfterEnd = mintCalls().length;
 		record(
 			'interview.end-early',
-			'PASS',
-			"the page's end action ends the conversation early (session length is agent-managed)",
+			mintsAfterEnd === 1 ? 'PASS' : 'FAIL',
+			mintsAfterEnd === 1 ?
+				"the page's end action ends the conversation early (endSession on the minted session); ending mints no new conversation"
+			:	`ending produced ${mintsAfterEnd} mint call(s) (exactly the one post-consent mint is expected)`,
 		);
 		await screenshot(cdp, page, '35-interview-ended', artifactsDir);
+		// The headless run has no microphone, so the SDK start fails with the
+		// expected media/permission noise; filter only that known noise and
+		// keep anything else a failure.
+		const mediaNoise =
+			/NotAllowedError|Permission.*denied|permission.*media|microphone|getUserMedia|MediaDevices|audio capture|elevenlabs|websocket|webrtc|peerconnection/i;
 		const errors = page.consoleErrors.filter(
-			(line) => !/favicon/i.test(line),
+			(line) => !/favicon/i.test(line) && !mediaNoise.test(line),
 		);
 		record(
 			'interview.no-console-errors',
 			errors.length === 0 ? 'PASS' : 'FAIL',
 			errors.length === 0 ?
-				'no page errors across the consent → live → ended flow'
+				'no unexpected page errors across the consent → live → ended flow (headless media/permission noise from the unattemptable live audio is filtered; the conversation itself stays Unverified)'
 			:	errors.slice(0, 3).join(' | '),
 		);
 	} catch (error) {
@@ -1852,7 +1879,6 @@ async function runInterviewAgentChecks(cdp, baseUrl, artifactsDir) {
 		).catch(() => {});
 		record('interview.flow', 'FAIL', error.message);
 	} finally {
-		await cdp.send('Fetch.disable', {}, page.sessionId).catch(() => {});
 		await page.close();
 		await cdp
 			.send('Target.disposeBrowserContext', { browserContextId })
@@ -2839,31 +2865,38 @@ async function main() {
 		// --- the configured-agent interview surface on a second server ---
 		// The main harness server deliberately runs without ElevenLabs env (the
 		// unavailable surface above). This one configures only the agent so the
-		// consent gate, the live start, and the widget dynamic variable can be
-		// driven; the embed itself is stubbed in the browser.
+		// consent gate, the minted-token live start, and the end-early path can
+		// be driven; the conversation token is minted against a loopback
+		// ElevenLabs stub (no real provider in the headless run).
 		if (server) {
+			const tokenStub = await startElevenLabsStub('agent_browser_stub');
 			const agentServer = await server('interview-agent', '1000', {
 				DATA_DIR: path.join(SERVER_DATA_DIR, 'agent'),
 				ELEVENLABS_API_KEY: 'ek_stubbed_for_the_browser_journey',
 				ELEVENLABS_AGENT_ID: 'agent_browser_stub',
 				ELEVENLABS_WEBHOOK_SECRET:
 					'whsec_stubbed_for_the_browser_journey',
+				ELEVENLABS_API_BASE_URL: tokenStub.baseUrl,
 			});
 			try {
 				console.log(`[harness] agent server: ${agentServer.baseUrl}`);
+				console.log(`[harness] token stub: ${tokenStub.baseUrl}`);
 				await runInterviewAgentChecks(
 					cdp,
 					agentServer.baseUrl,
+					tokenStub,
+					'agent_browser_stub',
 					ARTIFACTS_DIR,
 				);
 			} finally {
 				await agentServer.close();
+				await tokenStub.close();
 			}
 		} else {
 			for (const check of [
 				'interview.consent-gate',
 				'interview.agent-start',
-				'interview.dynamic-variable',
+				'interview.token-mint',
 				'interview.end-early',
 				'interview.no-console-errors',
 			]) {
