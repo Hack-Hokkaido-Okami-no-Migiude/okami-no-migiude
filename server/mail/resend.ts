@@ -4,8 +4,10 @@
 // platform built-ins.
 //
 // Safety rails:
-// - Enabled only when MAIL_LIVE_PROVIDER === 'resend' AND MAIL_RESEND_API_KEY
-//   is set (double gate), so no external request can happen by accident.
+// - Resend is the only live email service: it is enabled when
+//   MAIL_RESEND_API_KEY is set (and the base URL is valid) — there is no
+//   separate provider toggle. No key means the local .eml outbox handles
+//   delivery instead.
 // - The base URL defaults to https://api.resend.com. An http:// override is
 //   accepted only for loopback hosts (the QA stub substitute); anything else
 //   is treated as unconfigured, so mail falls back to the local outbox
@@ -16,9 +18,9 @@
 //   the provider replays the first result for the same key.
 // - Errors are sanitized to the HTTP status only. Request/response bodies, the
 //   API key, and recipient/subject content never reach error strings or logs.
-// - The mail_outbox schema (contract §9, owned outside server/mail/) has only
-//   the 'local' | 'smtp' provider slots; the live provider records the
-//   non-local slot 'smtp' after a successful send.
+// - The mail_outbox schema (contract §9, owned outside server/mail/) has the
+//   'local' | 'resend' provider slots; the live provider records 'resend'
+//   after a successful send.
 import type { LocalMail } from './local';
 
 export type LiveMail = Omit<LocalMail, 'sentAt'>;
@@ -47,12 +49,10 @@ function configuredBaseUrl(): string {
 	return '';
 }
 
-/** Live mode is on only when explicitly configured, end to end. */
+/** Live mode is on whenever the Resend credentials are configured. */
 export function liveMailConfigured(): boolean {
 	return (
-		process.env.MAIL_LIVE_PROVIDER === 'resend'
-		&& Boolean(process.env.MAIL_RESEND_API_KEY)
-		&& configuredBaseUrl() !== ''
+		Boolean(process.env.MAIL_RESEND_API_KEY) && configuredBaseUrl() !== ''
 	);
 }
 

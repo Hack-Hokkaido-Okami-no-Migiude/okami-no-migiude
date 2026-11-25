@@ -1,10 +1,10 @@
 // Mail delivery tests for the report-ready outbox (§9):
 //
-// 1. Default gate: MAIL_RESEND_API_KEY set but MAIL_LIVE_PROVIDER unset — the
-//    idempotent live sender must stay OFF; delivery remains the local .eml
-//    outbox and the stub endpoint must receive zero requests.
-// 2. Live gate: MAIL_LIVE_PROVIDER=resend + API key + loopback stub base URL —
-//    every queued mail is delivered as one idempotent REST call (stable
+// 1. Default (no MAIL_RESEND_API_KEY): delivery remains the local .eml
+//    outbox — no external mail is sent and the stub endpoint receives zero
+//    requests.
+// 2. Live gate: MAIL_RESEND_API_KEY + loopback stub base URL — the idempotent
+//    live sender delivers every queued mail as one idempotent REST call (stable
 //    Idempotency-Key = outbox mail id), the local .eml path stays untouched,
 //    a failed attempt is retried with the SAME stable key, and no secret or
 //    PII ever reaches the server logs.
@@ -32,7 +32,7 @@ const serverEntry = path.join(repoRoot, '.output', 'server', 'index.mjs');
 
 const STAFF_EMAIL = 'staff-mail@example.test';
 const STAFF_PASSWORD = 'test-staff-password-1234';
-const SMTP_FROM = 'qa-stub@example.test';
+const MAIL_FROM = 'qa-stub@example.test';
 const STUB_KEY = 'qa-stub-fixture-key-not-a-secret';
 
 const OWNER = {
@@ -248,7 +248,7 @@ async function startServer(label, dataDir, extraEnv = {}) {
 			PUBLIC_BASE_URL: baseUrl,
 			STAFF_EMAILS: STAFF_EMAIL,
 			STAFF_PASSWORD: STAFF_PASSWORD,
-			SMTP_FROM: SMTP_FROM,
+			MAIL_FROM: MAIL_FROM,
 			WORKER_POLL_MS: '500',
 			...extraEnv,
 		},
@@ -316,7 +316,7 @@ function emlFiles(dataDir) {
 }
 
 test(
-	'mail: live sender gate-off keeps local .eml delivery with zero external calls',
+	'mail: without an API key the local .eml outbox delivers with zero external calls',
 	{ timeout: 120000 },
 	async () => {
 		assert.equal(
@@ -328,10 +328,9 @@ test(
 		const dataDir = newDataDir('mail-gate-off');
 		let server = null;
 		try {
-			// API key present but MAIL_LIVE_PROVIDER unset: the live sender must
-			// stay disabled and the local outbox must keep working untouched.
+			// No MAIL_RESEND_API_KEY: Resend is never contacted and the local
+			// outbox keeps working untouched.
 			server = await startServer('gate-off server', dataDir, {
-				MAIL_RESEND_API_KEY: STUB_KEY,
 				MAIL_RESEND_BASE_URL: `http://127.0.0.1:${stub.port}`,
 			});
 			await runOwnerJourney(server.baseUrl);
@@ -380,7 +379,6 @@ test(
 		let server = null;
 		try {
 			server = await startServer('live server', dataDir, {
-				MAIL_LIVE_PROVIDER: 'resend',
 				MAIL_RESEND_API_KEY: STUB_KEY,
 				MAIL_RESEND_BASE_URL: `http://127.0.0.1:${stub.port}`,
 			});
@@ -403,8 +401,8 @@ test(
 				assert.equal(row.status, 'sent');
 				assert.equal(
 					row.provider,
-					'smtp',
-					'the non-local provider slot records the live delivery',
+					'resend',
+					'the live provider slot records the Resend delivery',
 				);
 				assert.match(row.sent_at, ISO_RE);
 			}
@@ -433,7 +431,7 @@ test(
 				assert.equal(record.body.to, row.recipient);
 				assert.equal(record.body.subject, row.subject);
 				assert.equal(record.body.text, row.body);
-				assert.equal(record.body.from, SMTP_FROM);
+				assert.equal(record.body.from, MAIL_FROM);
 				assert.ok(
 					row.body.includes(`${server.baseUrl}/reports/${reportId}`),
 					'mail body carries the absolute protected report link',

@@ -112,7 +112,7 @@ function initSchema(db: DatabaseSync): void {
 			recipient TEXT NOT NULL,
 			subject TEXT NOT NULL,
 			body TEXT NOT NULL,
-			provider TEXT NOT NULL CHECK (provider IN ('local', 'smtp')),
+			provider TEXT NOT NULL CHECK (provider IN ('local', 'resend')),
 			status TEXT NOT NULL CHECK (status IN ('queued', 'sent', 'failed')),
 			attempts INTEGER NOT NULL DEFAULT 0,
 			last_error TEXT,
@@ -196,9 +196,54 @@ function initSchema(db: DatabaseSync): void {
  * CREATE TABLE IF NOT EXISTS will not touch them. Bring those files forward:
  * voice_sessions gains plain ALTER'd columns, reports needs a NOT NULL drop
  * and therefore a table rebuild (report ids are preserved, so the
- * mail_outbox foreign keys stay valid).
+ * mail_outbox foreign keys stay valid), and pre-Resend mail_outbox tables
+ * carry the legacy 'smtp' provider slot and also need a rebuild — legacy
+ * 'smtp' rows map to 'resend', the only live provider.
  */
 function migrateLegacySchema(db: DatabaseSync): void {
+	// Legacy mail_outbox tables still declare the 'smtp' CHECK slot; detect
+	// them from the stored CREATE statement, which the fresh schema never has.
+	const mailTableSql = (
+		db
+			.prepare(
+				"SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mail_outbox'",
+			)
+			.get() as unknown as { sql: string } | undefined
+	)?.sql;
+	if (mailTableSql && mailTableSql.includes(`'smtp'`)) {
+		db.exec('PRAGMA foreign_keys = OFF;');
+		db.exec(`
+			CREATE TABLE mail_outbox_new (
+				id TEXT PRIMARY KEY,
+				report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+				audience TEXT NOT NULL CHECK (audience IN ('owner', 'staff')),
+				recipient TEXT NOT NULL,
+				subject TEXT NOT NULL,
+				body TEXT NOT NULL,
+				provider TEXT NOT NULL CHECK (provider IN ('local', 'resend')),
+				status TEXT NOT NULL CHECK (status IN ('queued', 'sent', 'failed')),
+				attempts INTEGER NOT NULL DEFAULT 0,
+				last_error TEXT,
+				next_attempt_at INTEGER,
+				created_at TEXT NOT NULL,
+				sent_at TEXT,
+				UNIQUE (report_id, audience, recipient)
+			);
+			INSERT INTO mail_outbox_new
+				(id, report_id, audience, recipient, subject, body, provider,
+				 status, attempts, last_error, next_attempt_at, created_at, sent_at)
+			SELECT
+				id, report_id, audience, recipient, subject, body, 'resend',
+				status, attempts, last_error, next_attempt_at, created_at, sent_at
+			FROM mail_outbox;
+			DROP TABLE mail_outbox;
+			ALTER TABLE mail_outbox_new RENAME TO mail_outbox;
+		`);
+		db.exec(
+			'CREATE INDEX IF NOT EXISTS idx_mail_queued ON mail_outbox(status, next_attempt_at);',
+		);
+		db.exec('PRAGMA foreign_keys = ON;');
+	}
 	const reportColumns = tableColumns(db, 'reports');
 	if (reportColumns.size > 0 && !reportColumns.has('voice_conversation_id')) {
 		db.exec('PRAGMA foreign_keys = OFF;');

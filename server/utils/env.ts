@@ -38,10 +38,5 @@ export function clockOffsetMs(): number {
 }
 
 export function mailFrom(): string {
-	return process.env.SMTP_FROM || 'okami-demo@localhost';
-}
-
-/** Absence of SMTP_HOST selects the local .eml outbox (§9). */
-export function smtpConfigured(): boolean {
-	return Boolean(process.env.SMTP_HOST);
+	return process.env.MAIL_FROM || 'okami-demo@localhost';
 }

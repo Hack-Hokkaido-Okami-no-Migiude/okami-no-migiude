@@ -9,7 +9,7 @@ export type MailRow = {
 	recipient: string;
 	subject: string;
 	body: string;
-	provider: 'local' | 'smtp';
+	provider: 'local' | 'resend';
 	status: 'queued' | 'sent' | 'failed';
 	attempts: number;
 	last_error: string | null;

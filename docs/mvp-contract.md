@@ -105,7 +105,7 @@ instance**. Audience is municipal small/medium-business (SMB) support.
 - **Features**:
     1. Sign-up / sign-in with email + password.
     2. Owner profile with exactly the fields in §4.
-    3. Interview: explicit consent gate, one-hour window, transcript submit.
+    3. Interview: explicit consent gate, transcript submit; conversation length is managed by the agent, with no hard time limit or visible timer.
     4. Asynchronous report generation from the transcript; visible to the
        owner who owns it and to staff.
     5. Report-ready notification mail to the owner (§9).
@@ -482,10 +482,10 @@ status='running'`; (2) reconcile — any report still `pending` whose
 
 ---
 
-## 9. Mail outbox — local substitute + optional live provider
+## 9. Mail outbox — local substitute + Resend live provider
 
 - **`mail_outbox` table**: `id`, `to_address`, `subject`, `body`,
-  `provider` (`'local' | 'smtp'`), `status` (`'queued' | 'sent' | 'failed'`),
+  `provider` (`'local' | 'resend'`), `status` (`'queued' | 'sent' | 'failed'`),
   `attempts`, `last_error`, `created_at`, `sent_at`, `related_type`,
   `related_id`.
 - **Compose at enqueue time**: the report-ready mail is fully rendered when the
@@ -493,13 +493,14 @@ status='running'`; (2) reconcile — any report still `pending` whose
   the owner's `locale`, body contains the absolute link
   `${PUBLIC_BASE_URL}/reports/<reportId>`. Providers stay dumb senders.
 - **Providers** (selected per attempt from env; no code change to switch):
-    - `local` (**default**, zero-config): writes an RFC 5322-ish `.eml` file to
+    - `resend` (**the only live provider**): active iff `MAIL_RESEND_API_KEY`
+      is set (with `MAIL_FROM` as the sender). Idempotent REST delivery with no
+      new dependencies; stable Idempotency-Key per message, so retries never
+      double-send. A send failure returns the job to the queue for retry
+      (§8 backoff).
+    - `local` (**default without a key**): writes an RFC 5322-ish `.eml` file to
       `${DATA_DIR}/mail-outbox/<mailId>.eml`, then marks the row `sent`. No
-      network access. This is the local substitute for a live provider.
-    - `smtp` (**optional**): active iff `SMTP_HOST` is set (with `SMTP_PORT`,
-      `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`); implemented with `nodemailer`
-      (pure-JS dependency added at implementation). A send failure returns the
-      job to the queue for retry (§8 backoff).
+      network access. This is the local substitute for the live provider.
 - A mail failure never changes the report status; the report is already `ready`.
 
 ---
@@ -597,7 +598,7 @@ if the team chooses.
 - [ ] §7 staff provisioning via `STAFF_EMAILS` + `STAFF_PASSWORD`
 - [ ] §7 session TTL 30 days (fixed), cookie policy
 - [ ] §8 SQLite via `node:sqlite`; retry backoff `2^n × 30 s`; max 5 attempts
-- [ ] §9 default mail provider = local `.eml` outbox; SMTP optional
+- [ ] §9 default mail provider = local `.eml` outbox; Resend is the only live sender
 - [ ] §10 provisional integration shape accepted as a placeholder until the
       teammate's contract is supplied
 - [ ] §11 demo labeling wording (JP/EN)
@@ -609,11 +610,8 @@ DATA_DIR=.data
 PUBLIC_BASE_URL=http://localhost:3000
 STAFF_EMAILS=          # comma-separated; enables staff accounts
 STAFF_PASSWORD=        # shared initial staff password
-SMTP_HOST=             # absence of SMTP_HOST selects the local outbox
-SMTP_PORT=
-SMTP_USER=
-SMTP_PASSWORD=
-SMTP_FROM=
+MAIL_FROM=             # sender address for all mail (Resend and the local outbox)
+MAIL_RESEND_API_KEY=   # presence enables Resend, the only live email service
 INTEGRATION_BASE_URL=  # absence disables live mode (demo only)
 INTEGRATION_TOKEN=
 ```

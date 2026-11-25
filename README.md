@@ -37,7 +37,7 @@ While the call runs, the background worker submits a Linkup deep-research task b
 ## Live dependencies and limits
 
 - The fictional script and optional local capture are **not** the teammate's live AI interviewer — the scripted interview keeps feeding the rule-based draft report. The live AI voice chat (see _Voice chat_ above) is conversation only and stays disabled until its credentials are configured; the report pipeline does not consume voice transcripts yet.
-- Email defaults to local `.eml` files; it does not deliver to inboxes. An opt-in Resend REST adapter is configured via `MAIL_LIVE_PROVIDER=resend`, `MAIL_RESEND_API_KEY`, and a verified `SMTP_FROM` sender, and still needs a test with real credentials and inboxes. Leave SMTP settings unset for the demo.
+- Email defaults to local `.eml` files; it does not deliver to inboxes. Resend is the only live email service: set `MAIL_RESEND_API_KEY` (and optionally `MAIL_FROM` as the sender) to enable idempotent REST delivery. Without a key nothing leaves the machine. Live delivery still needs a test with real credentials and inboxes.
 - This is a single-process prototype, not a public deployment. Before using real business data, review account and staff provisioning, rate limits, data retention, and mail and provider privacy terms. The public engineering board and implementation of recommendations are not included.
 
 ## Acceptance commands

@@ -425,7 +425,6 @@ async function startJourneyServer({
 		PUBLIC_BASE_URL: publicBaseOverride ?? baseUrl,
 		STAFF_EMAILS: staffEmails,
 		STAFF_PASSWORD: staffPassword,
-		SMTP_HOST: '',
 		INTEGRATION_BASE_URL: '',
 		INTEGRATION_TOKEN: '',
 		CLOCK_OFFSET_MS: '',

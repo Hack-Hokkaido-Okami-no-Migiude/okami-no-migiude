@@ -2,13 +2,12 @@
 // unique (report, audience, recipient) keys; this module delivers one due mail
 // per call and applies §8-style retry semantics (2^attempts x 30s, max 5).
 // Provider is selected per attempt from env:
-// - 'local' (default): .eml files, no network (§9 substitute).
-// - 'smtp': intentionally not implemented in this slice; fails honestly.
-// - 'resend' (optional live sender, see ./resend.ts): idempotent REST delivery,
-//   enabled only by explicit env; the synchronous worker loop starts at most
-//   one live attempt at a time and the row settles inside the awaited
-//   continuation.
-import { dataDir, mailFrom, publicBaseUrl, smtpConfigured } from '../utils/env';
+// - 'resend': the only live sender (see ./resend.ts); enabled when
+//   MAIL_RESEND_API_KEY is set. Idempotent REST delivery; the synchronous
+//   worker loop starts at most one live attempt at a time and the row settles
+//   inside the awaited continuation.
+// - 'local' (default without a key): .eml files, no network (§9 substitute).
+import { dataDir, mailFrom, publicBaseUrl } from '../utils/env';
 import { deliverLiveMail, liveMailConfigured } from './resend';
 import { nowIso, nowMs } from '../utils/clock';
 import type { DatabaseSync } from 'node:sqlite';
@@ -23,7 +22,7 @@ import { sanitizeError } from '../utils/errors';
 
 const MAX_ATTEMPTS = 5;
 
-type DeliverableProvider = 'local' | 'smtp' | 'resend';
+type DeliverableProvider = 'local' | 'resend';
 
 /**
  * The worker loop is synchronous; a live REST attempt is not. While one live
@@ -34,15 +33,15 @@ type DeliverableProvider = 'local' | 'smtp' | 'resend';
  */
 let liveDeliveryInFlight: string | null = null;
 
-/** Provider per attempt from env (§9): resend > smtp > local. */
+/** Provider per attempt from env (§9): resend when configured, else local. */
 function selectMailProvider(): DeliverableProvider {
 	if (liveMailConfigured()) {
 		return 'resend';
 	}
-	return smtpConfigured() ? 'smtp' : 'local';
+	return 'local';
 }
 
-function markMailSent(provider: 'local' | 'smtp', mailId: string): void {
+function markMailSent(provider: 'local' | 'resend', mailId: string): void {
 	getDb()
 		.prepare(
 			"UPDATE mail_outbox SET status = 'sent', sent_at = ?, provider = ?, attempts = attempts + 1 WHERE id = ? AND status = 'queued'",
@@ -85,11 +84,6 @@ export function processQueuedMail(): boolean {
 		return true;
 	}
 	try {
-		if (provider === 'smtp') {
-			throw new Error(
-				'SMTP provider is not implemented in this slice; unset SMTP_HOST to use the local outbox',
-			);
-		}
 		deliverLocal(
 			{
 				id: mail.id,
@@ -117,9 +111,9 @@ async function deliverLiveAndSettle(mail: MailRow): Promise<void> {
 			subject: mail.subject,
 			body: mail.body,
 		});
-		// 'smtp' is the non-local slot of the §9 provider enum (schema owned
+		// 'resend' is the live slot of the §9 provider enum (schema owned
 		// outside server/mail/); the live REST provider records that slot.
-		markMailSent('smtp', mail.id);
+		markMailSent('resend', mail.id);
 	} catch (error) {
 		applyMailFailure(mail, error);
 	} finally {
