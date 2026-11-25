@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 260" role="img" aria-labelledby="shima-enaga-title">
+	<title id="shima-enaga-title">シマエナガ — Shima Enaga mascot</title>
+	<desc>
+		A friendly long-tailed tit (shima enaga) wearing a small rust scarf,
+		perched on a snowy branch. Okami no Migiude mascot.
+	</desc>
+	<!-- snow mound -->
+	<ellipse cx="130" cy="234" rx="96" ry="18" fill="#ffffff" opacity="0.9"/>
+	<ellipse cx="196" cy="238" rx="46" ry="10" fill="#ffffff" opacity="0.7"/>
+	<!-- branch -->
+	<path d="M18 216 C 80 206, 182 206, 246 214" stroke="#7a5b3a" stroke-width="6" stroke-linecap="round" fill="none"/>
+	<path d="M208 210 C 220 200, 230 196, 240 194" stroke="#7a5b3a" stroke-width="3" stroke-linecap="round" fill="none"/>
+	<!-- long tail -->
+	<path d="M112 172 C 78 186, 50 204, 32 224 C 58 211, 90 198, 118 190 Z" fill="#35443c"/>
+	<path d="M112 174 C 84 186, 62 199, 46 214" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.85"/>
+	<!-- legs -->
+	<path d="M132 204 L 129 213" stroke="#b98a7a" stroke-width="3.4" stroke-linecap="round"/>
+	<path d="M152 204 L 155 213" stroke="#b98a7a" stroke-width="3.4" stroke-linecap="round"/>
+	<!-- body -->
+	<ellipse cx="142" cy="150" rx="53" ry="58" fill="#ffffff" stroke="#d8d2c4" stroke-width="2"/>
+	<circle cx="102" cy="122" r="16" fill="#ffffff"/>
+	<circle cx="182" cy="122" r="16" fill="#ffffff"/>
+	<!-- belly shading -->
+	<ellipse cx="142" cy="162" rx="40" ry="34" fill="#f2efe6" opacity="0.7"/>
+	<!-- wings -->
+	<path d="M112 138 C 98 150, 96 172, 110 188 C 118 177, 119 154, 116 140 Z" fill="#b9c4bb" opacity="0.75"/>
+	<path d="M172 138 C 186 150, 188 172, 174 188 C 166 177, 165 154, 168 140 Z" fill="#b9c4bb" opacity="0.75"/>
+	<!-- scarf -->
+	<path d="M116 116 Q 142 130, 168 116 L 168 130 Q 142 144, 116 130 Z" fill="#b04a21"/>
+	<path d="M158 132 L 165 156 Q 156 160, 149 155 L 148 134 Z" fill="#b04a21"/>
+	<path d="M149 155 L 145 162 M 153 157 L 150 164 M 160 156 L 158 163" stroke="#8f3a19" stroke-width="2" stroke-linecap="round"/>
+	<!-- fluffy head -->
+	<g fill="#ffffff" stroke="#d8d2c4" stroke-width="1.6">
+		<circle cx="142" cy="88" r="36"/>
+		<circle cx="110" cy="90" r="14"/>
+		<circle cx="174" cy="90" r="14"/>
+		<circle cx="142" cy="60" r="17"/>
+		<circle cx="121" cy="64" r="11"/>
+		<circle cx="163" cy="64" r="11"/>
+	</g>
+	<!-- face -->
+	<circle cx="128" cy="86" r="4.6" fill="#23241f"/>
+	<circle cx="126.4" cy="84.4" r="1.4" fill="#ffffff"/>
+	<circle cx="156" cy="86" r="4.6" fill="#23241f"/>
+	<circle cx="154.4" cy="84.4" r="1.4" fill="#ffffff"/>
+	<path d="M142 92 L 137.5 99.5 L 146.5 99.5 Z" fill="#2b2b2b"/>
+	<ellipse cx="118" cy="98" rx="6" ry="4" fill="#f2b8ad" opacity="0.6"/>
+	<ellipse cx="166" cy="98" rx="6" ry="4" fill="#f2b8ad" opacity="0.6"/>
+	<!-- snowflakes -->
+	<g fill="#ffffff" opacity="0.85">
+		<circle cx="42" cy="60" r="2.4"/>
+		<circle cx="226" cy="48" r="2"/>
+		<circle cx="200" cy="120" r="2.4"/>
+		<circle cx="64" cy="150" r="2"/>
+		<circle cx="240" cy="160" r="1.8"/>
+		<circle cx="30" cy="110" r="1.8"/>
+	</g>
+</svg>
