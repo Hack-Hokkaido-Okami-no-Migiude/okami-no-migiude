@@ -59,7 +59,6 @@ export function listStaffReportSummaries(): unknown[] {
 
 export type OwnerProfileRow = {
 	user_id: string;
-	business_type: string;
 	municipality: string;
 };
 
@@ -68,7 +67,7 @@ export function findOwnerProfileRow(
 ): OwnerProfileRow | undefined {
 	return getDb()
 		.prepare(
-			'SELECT user_id, business_type, municipality FROM owner_profiles WHERE user_id = ?',
+			'SELECT user_id, municipality FROM owner_profiles WHERE user_id = ?',
 		)
 		.get(userId) as unknown as OwnerProfileRow | undefined;
 }

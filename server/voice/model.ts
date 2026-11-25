@@ -383,11 +383,8 @@ export function parseVoiceBusiness(raw: string | null): VoiceBusiness | null {
 	const business: VoiceBusiness = {
 		businessName: read('businessName'),
 		location: read('location'),
-		businessType: read('businessType'),
 	};
-	return business.businessName || business.location || business.businessType ?
-			business
-		:	null;
+	return business.businessName || business.location ? business : null;
 }
 
 /** The stored research cases JSON, safely re-parsed. */

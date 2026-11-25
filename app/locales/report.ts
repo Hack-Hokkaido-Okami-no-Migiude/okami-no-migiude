@@ -11,7 +11,6 @@ export type ReportPageCopy = {
 	loading: string;
 	statusLabels: { pending: string; ready: string; failed: string };
 	viewingAsStaff: string;
-	metaBusinessType: string;
 	metaMunicipality: string;
 	metaGeneratedAt: string;
 	sections: {

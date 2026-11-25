@@ -120,7 +120,6 @@ export function useVoiceChat() {
 				{
 					business_name: options.businessContext.businessName,
 					location: options.businessContext.location,
-					business_type: options.businessContext.businessType,
 				}
 			:	{};
 		try {

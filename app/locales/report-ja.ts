@@ -12,7 +12,6 @@ export const reportJa: ReportPageCopy = {
 		failed: '失敗',
 	},
 	viewingAsStaff: 'スタッフとして閲覧しています',
-	metaBusinessType: '業種',
 	metaMunicipality: '地域',
 	metaGeneratedAt: '生成日時',
 	sections: {

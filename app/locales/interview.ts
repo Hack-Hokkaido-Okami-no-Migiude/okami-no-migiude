@@ -36,7 +36,7 @@ const ja = {
 		privacy:
 			'マイク録音は任意です。録音はブラウザの中だけで行われ、音声がそのまま保存・送信されることはありません。文字起こしは自動では行われないため、送信する文章はご自身で入力・編集します。送信した面談内容と報告書は、あなただけと、この支援を担当する予定の役所職員が参照します。',
 		demoHeading: 'サンプル面談について',
-		demo: '宿泊業の方は、架空の旅館を題材にしたサンプル面談（台本）をそのまま使えます。その他の業種の方は、自由入力でご自身の内容を記入してください。どちらの場合も、送信前に内容を自由に編集できます。',
+		demo: '架空の旅館を題材にしたサンプル面談（台本）をそのまま使えます。台本を送信前に自由に編集できます。',
 		nextButton: '同意の確認へ進む',
 	},
 	consent: {
@@ -125,20 +125,6 @@ const ja = {
 		submitting: '送信しています…',
 		submitHint:
 			'送信すると報告書の作成が始まります。送信後は編集できません。',
-	},
-	otherBusiness: {
-		heading: 'ご自身のことばで記入する',
-		body: 'サンプル面談の台本は宿泊業を題材にしているため、他の業種のご事業では、下の入力欄にご自身のことばで記入してください。短いメモでも構いません。',
-		topicsHeading: '書くことの例',
-		topics: [
-			'事業の現在の状況（規模、従業員、客層など）',
-			'直近で特に課題に感じていること',
-			'繁忙期と閑散期の差、需要の季節変動',
-			'客の流入経路（口コミ、SNS、予約方法など）',
-			'価格や単価についての考え',
-			'設備や人材への投資で必要なこと',
-			'今後1年で取り組みたいこと',
-		],
 	},
 	activeNotice: {
 		entered: '面談を開始しました。残り時間にご注意ください。',
@@ -297,20 +283,6 @@ const en: InterviewStrings = {
 		submitting: 'Submitting…',
 		submitHint:
 			'Submitting starts the report generation. The content cannot be edited afterwards.',
-	},
-	otherBusiness: {
-		heading: 'Write in your own words',
-		body: 'The sample script is themed on accommodation. For other business types, please write your own content in the editor below. Short notes are fine.',
-		topicsHeading: 'Things you might write about',
-		topics: [
-			'The current state of your business (size, employees, customers)',
-			'The challenge you feel most strongly about right now',
-			'The gap between busy and quiet seasons, seasonal demand',
-			'How customers find you (word of mouth, social media, booking)',
-			'Your thoughts on pricing',
-			'Investment you need in equipment or people',
-			'What you want to work on in the coming year',
-		],
 	},
 	activeNotice: {
 		entered:

@@ -82,20 +82,6 @@ async function importAppModule(relativePath) {
 // Locale dictionaries
 // ---------------------------------------------------------------------------
 
-const BUSINESS_TYPES = [
-	'accommodation',
-	'food_service',
-	'retail',
-	'tourism',
-	'agriculture',
-	'manufacturing',
-	'construction',
-	'transport',
-	'healthcare',
-	'professional_services',
-	'other',
-];
-
 function assertSameShape(ja, en, at) {
 	if (Array.isArray(ja)) {
 		assert.ok(
@@ -137,23 +123,6 @@ test('shell dictionaries exist with full ja/en parity', async () => {
 		'exactly ja and en',
 	);
 	assertSameShape(shellMessages.ja, shellMessages.en, 'shellMessages');
-
-	for (const businessType of BUSINESS_TYPES) {
-		assert.ok(
-			typeof shellMessages.ja.signup.businessTypes[businessType]
-				=== 'string'
-				&& shellMessages.ja.signup.businessTypes[businessType].length
-					> 0,
-			`ja label for ${businessType}`,
-		);
-		assert.ok(
-			typeof shellMessages.en.signup.businessTypes[businessType]
-				=== 'string'
-				&& shellMessages.en.signup.businessTypes[businessType].length
-					> 0,
-			`en label for ${businessType}`,
-		);
-	}
 
 	// The demo label wording from contract §11 stays visible in shell copy.
 	assert.match(shellMessages.ja.home.demoNote, /サンプル|フィクション/);
@@ -373,32 +342,7 @@ test('signup.vue renders the full profile form with native semantics', () => {
 	const texts = nodes.map((node) => `${node.tag} :: ${propText(node)}`);
 	const joined = texts.join('\n');
 
-	// all 11 business types offered through the dictionary-driven option list
-	assert.match(
-		joined,
-		/v-for=\(?entry|entry\) in businessTypeEntries/,
-		'options are generated from the bilingual businessTypes dictionary',
-	);
-	assert.match(
-		joined,
-		/v-bind:value=\(?entry|entry\)\.value/,
-		'option values are the wire-format business type values',
-	);
-
-	// conditional Other field exists and is conditionally rendered
-	const other = nodes.find((node) =>
-		propText(node).includes('name=otherBusinessType'),
-	);
-	assert.ok(other, 'otherBusinessType input exists');
-	const conditionalWrap = nodes.find(
-		(node) =>
-			/v-(show|if)=/.test(propText(node))
-			&& collectNodes(node).includes(other),
-	);
-	assert.ok(
-		conditionalWrap,
-		'otherBusinessType is conditionally shown (v-show/v-if ancestor)',
-	);
+	assert.doesNotMatch(joined, /name=(?:businessType|otherBusinessType)\b/);
 
 	// required fields carry the native required attribute
 	for (const name of [
@@ -406,7 +350,6 @@ test('signup.vue renders the full profile form with native semantics', () => {
 		'password',
 		'name',
 		'businessName',
-		'businessType',
 		'municipality',
 	]) {
 		const field = nodes.find((node) =>

@@ -26,7 +26,7 @@ const MAX_FOCUS_TOPICS = 4;
 const FOCUS_PROMPT_TEMPLATE = `Research how the work at the business described below is handled at comparable businesses, and produce a thorough, source-backed briefing the owner can act on.
 
 - **Location:** [LOCATION]
-- **Business type:** [BUSINESS_TYPE]
+- **Industry:** small local business (accommodation, food service, retail, tourism, and similar)
 [FOCUS]For every topic the briefing covers, include the following.
 
 - How the task is handled today at comparable businesses and where the time goes.
@@ -71,7 +71,7 @@ export function matchedTopicTitles(
  * only the matched topic titles.
  */
 export function deepResearchPrompt(
-	business: { location: string; businessType: string },
+	business: { location: string },
 	transcript: string,
 	topics: Topic[],
 	locale: Locale,
@@ -83,12 +83,7 @@ export function deepResearchPrompt(
 			}\n\nWeight the search toward these topics: the interview showed the owner loses the most time there.\n`
 		: '';
 	return FOCUS_PROMPT_TEMPLATE.replace(
-		/\[(LOCATION|BUSINESS_TYPE|FOCUS)\]/g,
-		(_, key: string) =>
-			key === 'LOCATION'
-				? business.location
-				: key === 'BUSINESS_TYPE'
-					? business.businessType
-					: focus,
+		/\[(LOCATION|FOCUS)\]/g,
+		(_, key: string) => (key === 'LOCATION' ? business.location : focus),
 	);
 }

@@ -77,50 +77,6 @@
 				/>
 			</div>
 			<div class="form-field">
-				<label for="signup-business-type">
-					{{ t.signup.fields.businessType.label }}
-				</label>
-				<select
-					id="signup-business-type"
-					v-model="form.businessType"
-					name="businessType"
-					required
-				>
-					<option
-						value=""
-						disabled
-					>
-						{{ t.signup.fields.businessType.placeholder }}
-					</option>
-					<option
-						v-for="entry in businessTypeEntries"
-						:key="entry.value"
-						:value="entry.value"
-					>
-						{{ entry.label }}
-					</option>
-				</select>
-			</div>
-			<div
-				v-show="form.businessType === 'other'"
-				class="form-field"
-			>
-				<label for="signup-other-business-type">
-					{{ t.signup.fields.otherBusinessType.label }}
-					<em class="required-when">
-						{{ t.signup.fields.otherBusinessType.requiredNote }}
-					</em>
-				</label>
-				<input
-					id="signup-other-business-type"
-					v-model="form.otherBusinessType"
-					type="text"
-					name="otherBusinessType"
-					:required="form.businessType === 'other'"
-					:placeholder="t.signup.fields.otherBusinessType.placeholder"
-				/>
-			</div>
-			<div class="form-field">
 				<label for="signup-municipality">
 					{{ t.signup.fields.municipality.label }}
 				</label>
@@ -211,7 +167,6 @@
 
 <script lang="ts" setup>
 	import type { SessionResponse, SignupRequest } from '#shared/types/api';
-	import type { BusinessType } from '#shared/types/domain';
 	import { shellMessages } from '~/locales/shell';
 
 	const { locale } = useAppLocale();
@@ -224,22 +179,12 @@
 		password: '',
 		name: '',
 		businessName: '',
-		businessType: '',
-		otherBusinessType: '',
 		municipality: '',
 		phone: '',
 		website: '',
 		note: '',
 		locale: locale.value,
 	});
-
-	const businessTypeEntries = computed(() =>
-		(
-			Object.entries(t.value.signup.businessTypes) as Array<
-				[BusinessType, string]
-			>
-		).map(([value, label]) => ({ value, label })),
-	);
 
 	const submitting = ref(false);
 	const errorCode = ref<string | null>(null);
@@ -262,26 +207,14 @@
 			return;
 		}
 		errorCode.value = null;
-		if (
-			form.businessType === 'other'
-			&& form.otherBusinessType.trim() === ''
-		) {
-			errorCode.value = 'validation';
-			document.getElementById('signup-other-business-type')?.focus();
-			return;
-		}
 		submitting.value = true;
 		try {
 			const profile: SignupRequest['profile'] = {
 				name: form.name.trim(),
 				businessName: form.businessName.trim(),
-				businessType: form.businessType as BusinessType,
 				municipality: form.municipality.trim(),
 				locale: form.locale,
 			};
-			if (form.businessType === 'other') {
-				profile.otherBusinessType = form.otherBusinessType.trim();
-			}
 			const phone = form.phone.trim();
 			if (phone !== '') {
 				profile.phone = phone;

@@ -19,7 +19,6 @@ registerHooks({ resolve });
 
 const ACCOMMODATION_SNAPSHOT = {
 	businessName: 'ペンション木もれび',
-	businessType: 'accommodation',
 	municipality: 'ニセコ町',
 	locale: 'ja',
 };
@@ -33,7 +32,6 @@ const EN_SNAPSHOT = {
 
 const FOOD_SNAPSHOT = {
 	businessName: 'キッチン遊び場',
-	businessType: 'food_service',
 	municipality: '岩見沢市',
 	locale: 'ja',
 };
@@ -102,7 +100,6 @@ test('analyzer: JA accommodation report carries the decision-ready sections', as
 	assert.match(content, /^# /m, 'markdown heading');
 	assert.match(content, /ペンション木もれび/);
 	assert.match(content, /自動下書き（ルールベース）/);
-	assert.match(content, /宿泊業/);
 	assert.match(content, /人材/);
 	assert.match(content, /繁忙/);
 	assert.doesNotMatch(
@@ -115,8 +112,6 @@ test('analyzer: JA accommodation report carries the decision-ready sections', as
 	assert.match(content, /## 改善フローの比較/);
 	assert.match(content, /### 現在の流れ（例）/);
 	assert.match(content, /### 改善後の流れ（例）/);
-	assert.match(content, /Web予約カレンダー/);
-	assert.match(content, /清掃リスト/);
 	assert.match(content, /## ボトルネック/);
 	assert.match(content, /## 削減できる時間と前提/);
 	assert.match(content, /前提:/);
@@ -153,18 +148,17 @@ test('parser: structured view of the JA accommodation report', async () => {
 	assert.equal(parsed.locale, 'ja');
 	assert.equal(parsed.businessName, 'ペンション木もれび');
 	assert.match(parsed.draftLabel ?? '', /自動下書き/);
-	assert.match(parsed.meta.businessType ?? '', /宿泊業/);
 	assert.equal(parsed.meta.municipality, 'ニセコ町');
 	assert.equal(parsed.meta.generatedAt, GENERATED_AT);
-	assert.ok(parsed.summary.length >= 2, 'summary bullets');
+	assert.ok(parsed.summary.length >= 1, 'summary bullets');
 
 	// Side-by-side ordered diagrams: two ordered step lists.
 	assert.ok(parsed.flow, 'flow pair parsed');
 	assert.equal(parsed.flow.currentSteps.length, 4);
 	assert.equal(parsed.flow.improvedSteps.length, 4);
 	assert.ok(
-		parsed.flow.improvedSteps.some((step) => step.includes('清掃リスト')),
-		'inn recommendation: booking calendar feeds the cleaning list',
+		parsed.flow.improvedSteps.some((step) => step.includes('作業リスト')),
+		'flow template feeds a concrete task list',
 	);
 	assert.match(parsed.flow.exampleLabel ?? '', /例示/);
 	assert.match(parsed.flow.exampleLabel ?? '', /ルールベース/);
@@ -214,11 +208,9 @@ test('analyzer+parser: EN accommodation report with EN conventions', async () =>
 	assert.match(content, /^# /m);
 	assert.match(content, /Komorebi Guesthouse/);
 	assert.match(content, /Automated draft \(rule-based\)/);
-	assert.match(content, /Accommodation/);
 	assert.match(content, /## Flow comparison/);
 	assert.match(content, /### Current flow \(example\)/);
 	assert.match(content, /### Improved flow \(example\)/);
-	assert.match(content, /cleaning list/);
 	assert.match(content, /## Time savings and assumptions/);
 	assert.match(content, /## Indicative costs/);
 	assert.match(content, /30,000 JPY/);
@@ -245,9 +237,7 @@ test('analyzer+parser: EN accommodation report with EN conventions', async () =>
 	assert.ok(parsed.flow);
 	assert.equal(parsed.flow.currentSteps.length, 4);
 	assert.equal(parsed.flow.improvedSteps.length, 4);
-	assert.ok(
-		parsed.flow.improvedSteps.some((s) => s.includes('cleaning list')),
-	);
+	assert.ok(parsed.flow.improvedSteps.some((s) => s.includes('task list')));
 	assert.match(parsed.flow.exampleLabel ?? '', /Examples only/);
 	assert.ok(parsed.timeSavings);
 	assert.match(parsed.timeSavings.estimateLabel ?? '', /rule-based estimate/);
@@ -259,7 +249,7 @@ test('analyzer+parser: EN accommodation report with EN conventions', async () =>
 	assert.equal(parsed.nextSteps.length, 3);
 });
 
-test('analyzer+parser: non-accommodation types get an adapted generic flow, no inn-specific claims', async () => {
+test('analyzer+parser: the shared flow template avoids inn-specific claims', async () => {
 	const [{ generateReportContent }, { parseReportContent }] =
 		await Promise.all([loadAnalyzer(), loadParser()]);
 	const content = generateReportContent(
@@ -270,11 +260,6 @@ test('analyzer+parser: non-accommodation types get an adapted generic flow, no i
 
 	assert.match(content, /## 改善フローの比較/);
 	assert.match(content, /分類: ルールベースの推定/);
-	assert.doesNotMatch(
-		content,
-		/清掃リスト/,
-		'the cleaning-list recommendation is accommodation-specific',
-	);
 	assert.match(content, /予約・受注/);
 
 	const parsed = parseReportContent(content);

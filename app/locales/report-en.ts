@@ -12,7 +12,6 @@ export const reportEn: ReportPageCopy = {
 		failed: 'Failed',
 	},
 	viewingAsStaff: 'Viewing as staff',
-	metaBusinessType: 'Business type',
 	metaMunicipality: 'Municipality',
 	metaGeneratedAt: 'Generated at',
 	sections: {

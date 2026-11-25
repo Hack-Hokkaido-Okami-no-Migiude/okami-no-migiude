@@ -110,7 +110,6 @@ async function advanceVoiceAssessment(
 		const business = parseVoiceBusiness(session.business) ?? {
 			businessName: '',
 			location: '',
-			businessType: '',
 		};
 		let task: string;
 		try {

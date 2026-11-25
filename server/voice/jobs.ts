@@ -61,7 +61,6 @@ export async function runVoiceResearchJob(
 				parseVoiceBusiness(session.business) ?? {
 					businessName: '',
 					location: '',
-					businessType: '',
 				},
 			);
 		} catch (error) {

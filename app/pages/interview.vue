@@ -165,7 +165,6 @@
 			<div class="interview-page__columns">
 				<div class="interview-page__left">
 					<InterviewScriptPlayer
-						v-if="scriptData !== null"
 						:strings="strings"
 						:script="scriptData"
 						:locale="locale"
@@ -175,26 +174,6 @@
 						@append-all="onScriptAppendAll"
 						@reset="flow.clearTranscript()"
 					/>
-					<section
-						v-else
-						class="panel interview-page__other-business"
-						aria-labelledby="interview-other-heading"
-					>
-						<h2 id="interview-other-heading">
-							{{ strings.otherBusiness.heading }}
-						</h2>
-						<p>{{ strings.otherBusiness.body }}</p>
-						<h3>{{ strings.otherBusiness.topicsHeading }}</h3>
-						<ul>
-							<li
-								v-for="(topic, index) in strings.otherBusiness
-									.topics"
-								:key="index"
-							>
-								{{ topic }}
-							</li>
-						</ul>
-					</section>
 
 					<InterviewCaptureControls
 						:capture="capture"
@@ -417,9 +396,7 @@
 		if (sessionUser === null || sessionUser.role !== 'owner') {
 			return null;
 		}
-		return sessionUser.profile.businessType === 'accommodation' ?
-				interviewScript[locale.value]
-			:	null;
+		return interviewScript[locale.value];
 	});
 
 	/** How many script lines are already inside the transcript (prefix match). */

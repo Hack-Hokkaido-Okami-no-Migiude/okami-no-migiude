@@ -10,7 +10,6 @@ import { DEEP_RESEARCH_PROMPT } from './prompt';
 export type VoiceBusiness = {
 	businessName: string;
 	location: string;
-	businessType: string;
 };
 
 export type VoiceResearchCase = {
@@ -201,7 +200,7 @@ export type ResearchRequest = {
 	 * pass passes 'XL' — see server/voice/deep-research.ts.
 	 */
 	reasoningDepth?: 'S' | 'M' | 'L' | 'XL';
-	/** Complete prompt override; [LOCATION]/[BUSINESS_TYPE] are still filled. */
+	/** Complete prompt override; [LOCATION] is still filled. */
 	prompt?: string;
 	/**
 	 * 'cases' (the default) returns the validated structured case list for
@@ -272,13 +271,9 @@ export function createVoiceProviders(config: VoiceConfig): VoiceProviders {
 			business: VoiceBusiness,
 			request: ResearchRequest = {},
 		): Promise<string> {
-			const fields: Record<string, string> = {
-				LOCATION: business.location,
-				BUSINESS_TYPE: business.businessType,
-			};
-			const base = (request.prompt ?? DEEP_RESEARCH_PROMPT).replace(
-				/\[(LOCATION|BUSINESS_TYPE)\]/g,
-				(_, key: string) => fields[key] ?? '',
+			const base = (request.prompt ?? DEEP_RESEARCH_PROMPT).replaceAll(
+				'[LOCATION]',
+				business.location,
 			);
 			// The dossier pass gets the prompt as-is; the case pass adds the
 			// five-case instruction that matches its structured schema.

@@ -8,7 +8,6 @@ export type VoiceConfigResponse = { available: boolean };
 export type VoiceBusiness = {
 	businessName: string;
 	location: string;
-	businessType: string;
 };
 
 export type VoiceResearchStatus =

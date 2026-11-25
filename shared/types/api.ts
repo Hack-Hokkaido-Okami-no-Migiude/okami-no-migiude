@@ -15,13 +15,14 @@ export type SignupRequest = {
 	profile: {
 		name: string;
 		businessName: string;
-		businessType: BusinessType;
-		otherBusinessType?: string; // required iff businessType === 'other'
+		// Legacy classification; the web signup form does not collect it.
+		businessType?: BusinessType;
+		otherBusinessType?: string;
 		municipality: string;
 		phone?: string;
 		website?: string;
 		note?: string;
-		locale: Locale;
+		locale?: Locale;
 	};
 };
 

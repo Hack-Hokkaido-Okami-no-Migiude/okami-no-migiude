@@ -1,12 +1,12 @@
 // Linkup deep-research prompt, ported from okami_voice's
 // DEEP_RESEARCH_PROMPT.md. Inlined as a string constant so the Nitro bundle
-// needs no extra asset loading. The [LOCATION] and [BUSINESS_TYPE]
-// placeholders are filled per session before the request is sent.
+// needs no extra asset loading. The [LOCATION] placeholder is filled per
+// session before the request is sent.
 
 export const DEEP_RESEARCH_PROMPT = `Find documented examples of practical AI and automation at businesses comparable to the one described below.
 
 - **Location:** [LOCATION]
-- **Business type:** [BUSINESS_TYPE]
+- **Industry:** small local business (accommodation, food service, retail, tourism, and similar)
 
 Start with similar businesses in the area and expand to other regions or adjacent industries when the approach could transfer. Look for real-world implementations with enough detail to explain how the work is done.
 

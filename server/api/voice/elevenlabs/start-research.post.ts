@@ -31,17 +31,16 @@ export default defineApi(async (event) => {
 	const conversationId = requiredWebhookString(body, 'conversation_id');
 	const businessName = requiredWebhookString(body, 'business_name');
 	const location = requiredWebhookString(body, 'location');
-	const businessType = requiredWebhookString(body, 'business_type');
-	if (!conversationId || !businessName || !location || !businessType) {
+	if (!conversationId || !businessName || !location) {
 		throw apiError(
 			400,
 			'validation',
-			'Fields conversation_id, business_name, location and business_type are required',
+			'Fields conversation_id, business_name and location are required',
 		);
 	}
 	const status = queueVoiceResearch(
 		conversationId,
-		{ businessName, location, businessType },
+		{ businessName, location },
 		nowMs() + VOICE_RESEARCH_TIMEOUT_MS,
 	);
 	if (status === 'missing') {

@@ -14,7 +14,7 @@ import {
 	matchedTopicTitles,
 } from '../server/voice/deep-research.ts';
 
-const BUSINESS = { location: 'ニセコ町', businessType: 'Accommodation' };
+const BUSINESS = { location: 'ニセコ町' };
 
 test('the deep pass uses the heaviest reasoning depth', () => {
 	assert.equal(DEEP_RESEARCH_REASONING_DEPTH, 'XL');
@@ -32,8 +32,8 @@ test('a Japanese transcript fills the focus topics and intake', () => {
 	);
 	assert.match(prompt, /人材の確保と定着/);
 	assert.match(prompt, /ニセコ町/);
-	assert.match(prompt, /Accommodation/);
-	assert.doesNotMatch(prompt, /\[(LOCATION|BUSINESS_TYPE|FOCUS)\]/);
+	assert.match(prompt, /small local business/);
+	assert.doesNotMatch(prompt, /\[(LOCATION|FOCUS)\]/);
 });
 
 test('an English transcript produces English titles with a comma list', () => {

@@ -65,9 +65,7 @@ const OWNER_C = {
 	profile: {
 		name: '山田 太郎',
 		businessName: 'キッチン遊び場',
-		businessType: 'food_service',
 		municipality: '岩見沢市',
-		locale: 'ja',
 	},
 };
 
@@ -683,11 +681,20 @@ test(
 					password: 'long-enough-1',
 					profile: { ...OWNER_A.profile, businessType: 'spa' },
 				},
-				'other without otherBusinessType': {
+				'blank owner name': {
 					...OWNER_A,
 					email: 'v3@example.test',
-					password: 'long-enough-1',
-					profile: { ...OWNER_A.profile, businessType: 'other' },
+					profile: { ...OWNER_A.profile, name: '  ' },
+				},
+				'blank business name': {
+					...OWNER_A,
+					email: 'v5@example.test',
+					profile: { ...OWNER_A.profile, businessName: '  ' },
+				},
+				'blank municipality': {
+					...OWNER_A,
+					email: 'v6@example.test',
+					profile: { ...OWNER_A.profile, municipality: '  ' },
 				},
 				'bad locale': {
 					...OWNER_A,
@@ -830,7 +837,7 @@ test(
 			);
 			for (const [label, transcript] of Object.entries({
 				empty: '',
-				whitespace: '   \n\t  ',
+				whitespace: '   \n	  ',
 				'too long': 'あ'.repeat(200001),
 			})) {
 				const response = await request(
@@ -1036,7 +1043,6 @@ test(
 			assert.match(contentA, /^# /m, 'markdown heading');
 			assert.match(contentA, /湯の花旅館/);
 			assert.match(contentA, /自動下書き（ルールベース）/);
-			assert.match(contentA, /宿泊業/);
 			assert.match(contentA, /人材/);
 			assert.match(contentA, /繁忙/);
 			assert.doesNotMatch(

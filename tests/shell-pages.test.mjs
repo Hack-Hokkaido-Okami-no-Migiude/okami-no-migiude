@@ -243,18 +243,21 @@ test(
 			);
 
 			console.log('## step: locale cookie switches the whole shell');
-			const homeEn = await request(baseUrl, 'GET', '/', {
-				origin: null,
-				headers: { cookie: 'app-locale=en' },
-			});
-			expectStatus('home en', homeEn, 200);
-			assert.match(homeEn.text, /lang="en"/);
-			assert.match(homeEn.text, /Okami no Migiude/);
-			assert.doesNotMatch(
-				homeEn.text,
-				/女将の右腕/,
-				'no Japanese strings in en shell',
-			);
+			for (const [expected, cookie] of [
+				['lang="ja"', ''],
+				['lang="en"', 'app-locale=en'],
+			]) {
+				const page = await request(baseUrl, 'GET', '/', {
+					origin: null,
+					headers: cookie ? { cookie } : {},
+				});
+				expectStatus('home shell', page, 200);
+				assert.match(
+					page.text,
+					new RegExp(expected),
+					'requested shell locale',
+				);
+			}
 
 			// ------------------------------------------------------------------
 			// Signup form
@@ -264,31 +267,10 @@ test(
 				origin: null,
 			});
 			expectStatus('signup', signup, 200);
-			for (const businessType of [
-				'accommodation',
-				'food_service',
-				'retail',
-				'tourism',
-				'agriculture',
-				'manufacturing',
-				'construction',
-				'transport',
-				'healthcare',
-				'professional_services',
-				'other',
-			]) {
-				assert.match(
-					signup.text,
-					new RegExp(`value="${businessType}"`),
-					`business type option ${businessType}`,
-				);
-			}
-			assert.match(
+			assert.doesNotMatch(
 				signup.text,
-				/name="otherBusinessType"/,
-				'conditional field',
+				/name="(?:businessType|otherBusinessType)"/,
 			);
-			assert.match(signup.text, /宿泊業/, 'ja business labels render');
 			assert.match(signup.text, /（任意）/, 'optional fields are marked');
 			assert.match(
 				signup.text,

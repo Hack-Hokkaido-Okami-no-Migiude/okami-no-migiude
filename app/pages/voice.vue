@@ -109,10 +109,6 @@
 					<dt>{{ strings.intro.locationLabel }}</dt>
 					<dd>{{ profileValue('municipality') }}</dd>
 				</div>
-				<div>
-					<dt>{{ strings.intro.typeLabel }}</dt>
-					<dd>{{ typeValue }}</dd>
-				</div>
 			</dl>
 			<h3>{{ strings.intro.micHeading }}</h3>
 			<p>{{ strings.intro.mic }}</p>
@@ -326,7 +322,6 @@
 		allConsentsGiven,
 	} from '../utils/interview-consent.ts';
 	import type { ConsentsState } from '../utils/interview-consent.ts';
-	import { shellMessages } from '~/locales/shell';
 	import type {
 		VoiceConfigResponse,
 		VoiceCurrentResponse,
@@ -363,22 +358,6 @@
 
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
 	let pollGeneration = 0;
-
-	const typeValue = computed(() => {
-		const sessionUser = user.value as SessionUser | null;
-		if (sessionUser === null || sessionUser.role !== 'owner') {
-			return '';
-		}
-		const profile = sessionUser.profile;
-		if (profile.businessType === 'other') {
-			return profile.otherBusinessType || profile.businessType;
-		}
-		return (
-			shellMessages[locale.value].signup.businessTypes[
-				profile.businessType
-			] ?? profile.businessType
-		);
-	});
 
 	function profileValue(key: 'businessName' | 'municipality'): string {
 		const sessionUser = user.value as SessionUser | null;

@@ -115,13 +115,12 @@ function generateAndEnqueue(report: ReportRow): void {
 		markReportFailed(report.id, 'Live analysis is not configured');
 		return;
 	}
-	const profile = findOwnerProfileRow(report.owner_id);
 	const content = generateReportContent(
 		interview.transcript,
 		{
 			businessName: report.business_name,
-			businessType: profile?.business_type ?? 'other',
-			municipality: profile?.municipality ?? '',
+			municipality:
+				findOwnerProfileRow(report.owner_id)?.municipality ?? '',
 			locale: report.locale,
 		},
 		nowIso(),

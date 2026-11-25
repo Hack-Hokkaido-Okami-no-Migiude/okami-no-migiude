@@ -39,7 +39,6 @@ const OWNER_A = {
 	profile: {
 		name: '山田 花子',
 		businessName: '湯の花旅館',
-		businessType: 'accommodation',
 		municipality: 'ニセコ町',
 		locale: 'ja',
 	},
@@ -544,7 +543,6 @@ test(
 						conversation_id: 'conv_any',
 						business_name: 'x',
 						location: 'y',
-						business_type: 'z',
 					},
 					headers: { authorization: 'Bearer tool_test_secret' },
 					origin: null,
@@ -699,7 +697,6 @@ test(
 			assert.deepEqual(current1.json.session.research.business, {
 				businessName: '湯の花旅館',
 				location: 'ニセコ町',
-				businessType: 'Accommodation',
 			});
 
 			console.log('## step: worker completes session 1 research');
@@ -729,7 +726,6 @@ test(
 
 			const researchBody = JSON.parse(stub.state.researchRequests[0]);
 			assert.match(researchBody.q, /ニセコ町/);
-			assert.match(researchBody.q, /Accommodation/);
 			assert.doesNotMatch(researchBody.q, /\[(LOCATION|BUSINESS_TYPE)\]/);
 			assert.equal(researchBody.mode, 'research');
 			assert.equal(typeof researchBody.structuredOutputSchema, 'string');
@@ -800,7 +796,6 @@ test(
 				{
 					businessName: '湯の花旅館',
 					location: 'ニセコ町',
-					businessType: 'Accommodation',
 				},
 			);
 
@@ -839,7 +834,6 @@ test(
 				'/api/voice/elevenlabs/start-research',
 				{
 					body: {
-						conversation_id: 'conv_stub_3',
 						business_name: 'x',
 						location: 'y',
 					},
@@ -850,12 +844,12 @@ test(
 				},
 			);
 			expectStatus(
-				'start-research missing business_type',
+				'start-research missing conversation_id',
 				missingField,
 				400,
 			);
 			expectErrorCode(
-				'start-research missing business_type',
+				'start-research missing conversation_id',
 				missingField,
 				'validation',
 			);
@@ -1234,7 +1228,6 @@ function webhookResearchBody(conversationId) {
 		conversation_id: conversationId,
 		business_name: '湯の花旅館',
 		location: 'ニセコ町',
-		business_type: 'Accommodation',
 	};
 }
 

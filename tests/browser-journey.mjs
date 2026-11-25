@@ -32,9 +32,7 @@
 // MANUAL UI CHECKLIST for the lead (drive locally with --headed + --keep, or
 // by hand against npm run dev):
 //   1. /           — language switch ja⇄en actually flips visible strings.
-//   2. /signup     — all §4 fields present incl. businessType dropdown with
-//                    all 11 contract values; otherBusinessType appears only
-//                    for "other"; locale choice persists into the session.
+//   2. /signup     — owner details and password; no business-type inputs.
 //   3. /interview  — no consent ⇒ start must be impossible (disabled/hidden/
 //                    blocked, and NO POST /api/interviews/start in devtools
 //                    network tab). With consent, mode=demo only (live never
@@ -106,7 +104,6 @@ const OWNER_UI = {
 	profile: {
 		name: 'UIテスト オーナー',
 		businessName: 'ブラウザテスト宿',
-		businessType: 'accommodation',
 		municipality: '札幌市',
 		locale: 'ja',
 	},
@@ -985,52 +982,6 @@ async function fillField(cdp, page, spec, text, label) {
 	return descriptor;
 }
 
-async function selectOption(cdp, page, spec, value, label) {
-	// <select> has no reliable synthetic mouse path in headless CDP; set the
-	// value directly and fire real input+change events (documented shortcut).
-	const result = await evaluate(
-		cdp,
-		page,
-		`(() => {
-			window.__spec = ${JSON.stringify(spec)};
-			const d = (${MATCHER_SOURCE})();
-			if (!d || d.tag !== 'select') {
-				return { found: false, descriptor: d };
-			}
-			const el = document.getElementById(d.id) ?? document.querySelector('select[name="' + CSS.escape(d.name ?? '') + '"]');
-			if (!el) {
-				return { found: false, descriptor: d };
-			}
-			const wanted = ${JSON.stringify(String(value))}.normalize('NFKC').toLowerCase().replace(/[\\s\\u3000]+/g, '');
-			const index = [...el.options].findIndex((o) => {
-				const value = (o.value ?? '').normalize('NFKC').toLowerCase().replace(/[\\s\\u3000]+/g, '');
-				const text = (o.textContent ?? '').normalize('NFKC').toLowerCase().replace(/[\\s\\u3000]+/g, '');
-				return value === wanted || text === wanted;
-			});
-			if (index < 0) {
-				return { found: true, matched: false, options: [...el.options].map((o) => o.value + ':' + o.textContent.trim()) };
-			}
-			el.selectedIndex = index;
-			el.dispatchEvent(new Event('input', { bubbles: true }));
-			el.dispatchEvent(new Event('change', { bubbles: true }));
-			return { found: true, matched: true, value: el.value };
-		})()`,
-	);
-	if (!result?.found) {
-		const error = new Error(`no <select> matches ${label}`);
-		error.pending = true;
-		throw error;
-	}
-	if (!result.matched) {
-		const error = new Error(
-			`select ${label}: option ${JSON.stringify(String(value))} not found (options: ${JSON.stringify(result.options)})`,
-		);
-		error.pending = true;
-		throw error;
-	}
-	return result;
-}
-
 // ---------------------------------------------------------------------------
 // Locale switcher heuristic (contract: every owner-facing string in ja + en)
 // ---------------------------------------------------------------------------
@@ -1330,6 +1281,15 @@ async function runSignupUiCheck(cdp, contextId, baseUrl, artifactsDir) {
 	try {
 		await navigate(cdp, page, `${baseUrl}/signup`);
 		await screenshot(cdp, page, '10-signup-landing', artifactsDir);
+		if (
+			await evaluate(
+				cdp,
+				page,
+				`Boolean(document.querySelector('form [name="businessType"], form [name="otherBusinessType"]'))`,
+			)
+		) {
+			throw new Error('Signup must not display business-type fields');
+		}
 		const email = `ui-signup-${crypto.randomUUID().slice(0, 8)}@example.test`;
 		await fillField(
 			cdp,
@@ -1376,16 +1336,6 @@ async function runSignupUiCheck(cdp, contextId, baseUrl, artifactsDir) {
 			},
 			OWNER_UI.profile.businessName,
 			'signup business name',
-		);
-		await selectOption(
-			cdp,
-			page,
-			{
-				kinds: ['select'],
-				match: ['business.*type|業種|事業の種別|種別'],
-			},
-			OWNER_UI.profile.businessType,
-			'signup businessType',
 		);
 		await fillField(
 			cdp,
@@ -1656,7 +1606,9 @@ async function runInterviewUiChecks(cdp, contextId, baseUrl, artifactsDir) {
 			await click(`#interview-consent-${field}`);
 		}
 		await click('.interview-consent button');
-		await waitFor("Boolean(document.querySelector('.interview-script'))");
+		await waitFor(
+			"Boolean(document.querySelector('#interview-transcript-input'))",
+		);
 		await waitText(
 			cdp,
 			page,
@@ -1676,7 +1628,13 @@ async function runInterviewUiChecks(cdp, contextId, baseUrl, artifactsDir) {
 			'PASS',
 			'Fictional interview started with a one-hour server deadline',
 		);
-		await click('.interview-script button.button-secondary');
+		await fillField(
+			cdp,
+			page,
+			{ kinds: ['textarea'], match: ['interview-transcript-input'] },
+			TRANSCRIPT_A,
+			'interview transcript',
+		);
 		await waitFor(
 			"Boolean(document.querySelector('#interview-transcript-input')?.value)",
 		);
@@ -1688,7 +1646,7 @@ async function runInterviewUiChecks(cdp, contextId, baseUrl, artifactsDir) {
 		await waitFor("location.pathname.startsWith('/reports/')");
 		await waitText(cdp, page, /ルールベース|rule-based/i);
 		record(
-			'interview.scripted-flow-submit',
+			'interview.transcript-submit',
 			'PASS',
 			'Browser submitted the fictional transcript and rendered a ready report',
 		);

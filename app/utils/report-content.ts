@@ -49,7 +49,6 @@ const TITLE_PREFIXES = {
 };
 
 const META_PATTERNS = {
-	businessType: /^(?:業種|Business type):\s*(.*)$/,
 	municipality: /^(?:地域|Municipality):\s*(.*)$/,
 	generatedAt: /^(?:生成日時|Generated at):\s*(.*)$/,
 };
@@ -78,7 +77,7 @@ export function parseReportContent(raw: string): ReportContent | null {
 		title: '',
 		businessName: null,
 		draftLabel: null,
-		meta: { businessType: null, municipality: null, generatedAt: null },
+		meta: { municipality: null, generatedAt: null },
 		summary: [],
 		flow: null,
 		bottlenecks: [],
@@ -330,14 +329,10 @@ function matchSection(heading: string): string | null {
 }
 
 function matchMeta(bullet: string): {
-	key: 'businessType' | 'municipality' | 'generatedAt';
+	key: 'municipality' | 'generatedAt';
 	value: string | null;
 } | null {
-	for (const key of [
-		'businessType',
-		'municipality',
-		'generatedAt',
-	] as const) {
+	for (const key of ['municipality', 'generatedAt'] as const) {
 		const match = META_PATTERNS[key].exec(bullet);
 		if (match) {
 			return { key, value: match[1]?.trim() || null };

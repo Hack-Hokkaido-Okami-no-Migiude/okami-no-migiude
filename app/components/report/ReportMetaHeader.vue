@@ -26,12 +26,6 @@
 				{{ copy.viewingAsStaff }}
 			</span>
 			<span
-				v-if="businessType"
-				class="badge report-header__meta"
-			>
-				{{ copy.metaBusinessType }}: {{ businessType }}
-			</span>
-			<span
 				v-if="municipality"
 				class="badge report-header__meta"
 			>
@@ -76,10 +70,6 @@
 	}));
 
 	const draftLabel = computed(() => props.structured?.draftLabel ?? null);
-
-	const businessType = computed(
-		() => props.structured?.meta.businessType ?? null,
-	);
 
 	const municipality = computed(
 		() => props.structured?.meta.municipality ?? null,

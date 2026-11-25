@@ -1,7 +1,5 @@
-// Signup body validation (§5): email trimmed + lowercased matching the simple
-// pattern, password at least 8 characters, otherBusinessType required iff
-// businessType is 'other', locale ja|en. Optional profile fields normalize
-// omission to null; unknown extra properties are ignored.
+// Signup validates credentials and nonblank owner details. Older clients
+// can still send a business classification for downstream reports.
 import {
 	BUSINESS_TYPES,
 	EMAIL_PATTERN,
@@ -39,37 +37,37 @@ export function parseSignup(body: unknown): SignupInput {
 		throw apiError(400, 'validation', 'Field password is too long');
 	}
 	const profile = readJsonObject(root.profile);
-	const businessType = requireOneOf<BusinessType>(
-		profile,
-		'businessType',
-		BUSINESS_TYPES,
-	);
-	const locale = requireOneOf<Locale>(profile, 'locale', LOCALES);
-	let otherBusinessType: string | null = null;
-	if (businessType === 'other') {
-		const value = profile.otherBusinessType;
-		if (typeof value !== 'string' || value.trim().length === 0) {
-			throw apiError(
-				400,
-				'validation',
-				"Field otherBusinessType is required when businessType is 'other'",
-			);
-		}
-		otherBusinessType = value.trim();
-	} else if (typeof profile.otherBusinessType === 'string') {
-		otherBusinessType = profile.otherBusinessType.trim() || null;
-	}
+	const businessType =
+		profile.businessType === undefined ?
+			'other'
+		:	requireOneOf<BusinessType>(profile, 'businessType', BUSINESS_TYPES);
+	const locale =
+		profile.locale === undefined ?
+			'ja'
+		:	requireOneOf<Locale>(profile, 'locale', LOCALES);
 	return {
 		email,
 		password,
-		name: requireString(profile, 'name'),
-		businessName: requireString(profile, 'businessName'),
+		name: requireNonblank(profile, 'name'),
+		businessName: requireNonblank(profile, 'businessName'),
 		businessType,
-		otherBusinessType,
-		municipality: requireString(profile, 'municipality'),
+		otherBusinessType:
+			optionalString(profile, 'otherBusinessType')?.trim() || null,
+		municipality: requireNonblank(profile, 'municipality'),
 		phone: optionalString(profile, 'phone'),
 		website: optionalString(profile, 'website'),
 		note: optionalString(profile, 'note'),
 		locale,
 	};
+}
+
+function requireNonblank(
+	profile: Record<string, unknown>,
+	field: string,
+): string {
+	const value = requireString(profile, field).trim();
+	if (!value) {
+		throw apiError(400, 'validation', `Field '${field}' is required`);
+	}
+	return value;
 }

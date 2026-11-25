@@ -19,9 +19,9 @@ To enable staff review, set `STAFF_EMAILS` to one or more synthetic addresses (f
 
 ## Demo walkthrough
 
-1. Switch between Japanese and English. Create an owner account for a fictional inn, select Accommodation, and enter Sapporo as the municipality.
-2. Start the interview when ready. Confirm all consent items. Use the fictional script and its fill-transcript button, then submit. For another business, use the editable transcript instead. Optional browser recording stays local; this mode does not automatically transcribe or upload the audio.
-3. Open the report. While the background worker analyzes the transcript, the owner can leave and return later. The report labels its analysis as a rule-based draft. For the inn, compare the current workflow with a shared booking calendar and calendar-driven cleaning list. Savings and costs are indicative estimates, not measured outcomes.
+1. Switch between Japanese and English. Create a fictional inn account with the owner's name, email, business name, and Sapporo as the municipality. Set a password for sign-in. No business type is needed.
+2. Start the interview when ready. Confirm all consent items. Enter a fictional transcript in the editor; for example, describe how phone and online bookings get copied into a notebook and how staff use it to schedule cleaning. Optional browser recording stays local; this mode does not automatically transcribe or upload the audio.
+3. Open the report. While the background worker analyzes the transcript, the owner can leave and return later. The report labels its analysis as a rule-based draft. Savings and costs are indicative estimates, not measured outcomes.
 4. Open the owner's message in `.data/mail-outbox/`. Follow the report link in a signed-out window and sign in to view the private report. Download the Markdown attachment and request a consultation.
 5. Sign in as the designated advisor and open `/staff`. The queue shows reports and consultation requests. The advisor can open a report, contact the owner, and handle introductions outside the app. The outbox contains a separate notification for each designated staff account.
 6. Optionally open **音声面談 / Voice chat** from the dashboard. Without voice credentials the page shows an honest "unavailable" notice; with credentials it starts a live AI voice chat (see below).

@@ -1,11 +1,10 @@
 // Rule-based demo analysis tables (§11): deterministic keyword/section rules
 // over the transcript + owner profile snapshot — no network, no AI. Later
 // workers can extend TOPICS or add per-type sections without touching the API.
-import type { BusinessType, Locale } from '#shared/types/domain';
+import type { Locale } from '#shared/types/domain';
 
 export type Snapshot = {
 	businessName: string;
-	businessType: BusinessType;
 	municipality: string;
 	locale: Locale;
 };
@@ -271,76 +270,6 @@ export const TOPICS: Topic[] = [
 	},
 ];
 
-export const BUSINESS_TYPE_LABELS: Record<
-	BusinessType,
-	{ ja: string; en: string }
-> = {
-	accommodation: { ja: '宿泊業', en: 'Accommodation' },
-	food_service: { ja: '飲食業', en: 'Food service' },
-	retail: { ja: '小売業', en: 'Retail' },
-	tourism: { ja: '観光業', en: 'Tourism' },
-	agriculture: { ja: '農業', en: 'Agriculture' },
-	manufacturing: { ja: '製造業', en: 'Manufacturing' },
-	construction: { ja: '建設業', en: 'Construction' },
-	transport: { ja: '運輸業', en: 'Transport' },
-	healthcare: { ja: '医療・福祉', en: 'Healthcare and welfare' },
-	professional_services: {
-		ja: '専門サービス業',
-		en: 'Professional services',
-	},
-	other: { ja: 'その他', en: 'Other' },
-};
-
-export const BUSINESS_TYPE_ANGLE: Record<
-	BusinessType,
-	{ ja: string; en: string }
-> = {
-	accommodation: {
-		ja: '宿泊業では、平日・閑散期の稼働率と客単価のバランス、繁忙期の受け入れ態勢（清掃・人員）が経営の要点になります。',
-		en: 'For accommodation, the balance between weekday occupancy and room rate, plus peak-season readiness, drives the business.',
-	},
-	food_service: {
-		ja: '飲食業では、客単価と回転率、仕入れロスの管理が要点になります。',
-		en: 'For food service, average spend, table turnover and purchasing loss control are key.',
-	},
-	retail: {
-		ja: '小売業では、来店動機と購入単価、在庫回転が要点になります。',
-		en: 'For retail, visit motivation, basket size and inventory turnover are key.',
-	},
-	tourism: {
-		ja: '観光業では、シーズン変動への対応と予約の前倒し確保が要点になります。',
-		en: 'For tourism, handling seasonal swings and securing bookings early are key.',
-	},
-	agriculture: {
-		ja: '農業では、出荷先の多様化と作業ピークの労働力確保が要点になります。',
-		en: 'For agriculture, diversifying buyers and staffing the work peak are key.',
-	},
-	manufacturing: {
-		ja: '製造業では、受注の安定と原価管理、技能の継承が要点になります。',
-		en: 'For manufacturing, stable orders, cost control and skills succession are key.',
-	},
-	construction: {
-		ja: '建設業では、工事受注の安定と職人の確保、安全衛生が要点になります。',
-		en: 'For construction, stable contracts, skilled crews and site safety are key.',
-	},
-	transport: {
-		ja: '運輸業では、稼働率と燃料・車両維持費の管理が要点になります。',
-		en: 'For transport, utilization and fuel plus fleet maintenance costs are key.',
-	},
-	healthcare: {
-		ja: '医療・福祉では、利用者との信頼関係と人材配置が要点になります。',
-		en: 'For healthcare and welfare, client trust and staffing allocation are key.',
-	},
-	professional_services: {
-		ja: '専門サービス業では、受注経路の確保と専門性の見える化が要点になります。',
-		en: 'For professional services, stable order channels and visible expertise are key.',
-	},
-	other: {
-		ja: '事業の性質に応じて、強みと課題を窓口で一緒に整理しましょう。',
-		en: 'Sort out strengths and challenges together with the desk, depending on your business.',
-	},
-};
-
 // ---------------------------------------------------------------------------
 // Decision-ready recommendation templates (additive §11 rules). One template
 // per business type: the accommodation entry is the inn recommendation
@@ -538,20 +467,6 @@ const GENERIC_RECOMMENDATION: OpsRecommendation = {
 	},
 };
 
-export const OPS_RECOMMENDATIONS: Record<BusinessType, OpsRecommendation> = {
-	accommodation: INN_RECOMMENDATION,
-	food_service: GENERIC_RECOMMENDATION,
-	retail: GENERIC_RECOMMENDATION,
-	tourism: GENERIC_RECOMMENDATION,
-	agriculture: GENERIC_RECOMMENDATION,
-	manufacturing: GENERIC_RECOMMENDATION,
-	construction: GENERIC_RECOMMENDATION,
-	transport: GENERIC_RECOMMENDATION,
-	healthcare: GENERIC_RECOMMENDATION,
-	professional_services: GENERIC_RECOMMENDATION,
-	other: GENERIC_RECOMMENDATION,
-};
-
-export function opsFor(businessType: BusinessType): OpsRecommendation {
-	return OPS_RECOMMENDATIONS[businessType] ?? GENERIC_RECOMMENDATION;
+export function opsFor(): OpsRecommendation {
+	return GENERIC_RECOMMENDATION;
 }

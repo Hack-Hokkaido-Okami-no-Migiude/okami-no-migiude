@@ -8,8 +8,8 @@
 //       `# Business consultation report (demo): <businessName>`
 //   → `title`, `businessName` (text after the first ": ").
 // - First blockquote before any H2 → `draftLabel` (the §11 rule-based label).
-// - Metadata bullets: `- 業種: ` / `- Business type: `,
-//   `- 地域: ` / `- Municipality: `, `- 生成日時: ` / `- Generated at: `.
+// - Metadata bullets: `- 地域: ` / `- Municipality: ` and
+//   `- 生成日時: ` / `- Generated at: `.
 // - `## 改善フローの比較` / `## Flow comparison` with a blockquote example
 //   label and two H3 ordered lists: `### 現在の流れ（例）` /
 //   `### Current flow (example)` and `### 改善後の流れ（例）` /
@@ -32,7 +32,6 @@
 import type { Locale } from './domain';
 
 export type ReportMetaContent = {
-	businessType: string | null;
 	municipality: string | null;
 	generatedAt: string | null;
 };
