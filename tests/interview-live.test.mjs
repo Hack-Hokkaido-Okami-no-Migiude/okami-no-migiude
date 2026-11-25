@@ -414,18 +414,19 @@ test(
 
 			const jar = await signupOwner(server.baseUrl, OWNER_A.email);
 
-			// The retired voice-session API refuses new conversations.
+			// The session endpoint mints only for an active live interview:
+			// the owner has none yet, so the mint is refused honestly.
 			const voiceSession = await request(
 				server.baseUrl,
 				'POST',
 				'/api/voice/sessions',
 				{ body: { consent: true }, jar },
 			);
-			expectStatus('new voice session is refused', voiceSession, 410);
+			expectStatus('no active interview yet', voiceSession, 409);
 			expectErrorCode(
-				'new voice session is refused',
+				'no active interview yet',
 				voiceSession,
-				'superseded',
+				'no_active_interview',
 			);
 
 			console.log('## step: live start records the consent and intake');
