@@ -70,6 +70,14 @@ export type Interview = {
 
 export type ReportStatus = 'pending' | 'ready' | 'failed';
 
+/**
+ * What produced the report content: the rule-based demo analyzer (headless
+ * demo path) or the Dify post-call assessment (live engine). Drives the
+ * honest page label — a Dify report is never presented as a rule-based
+ * estimate.
+ */
+export type ReportGenerator = 'rule_based' | 'dify';
+
 export type Report = {
 	id: string;
 	/** Null for voice-sourced reports (they come from a voice session). */
@@ -77,6 +85,7 @@ export type Report = {
 	ownerId: string;
 	businessName: string; // snapshot of the owner profile at submit time
 	locale: Locale; // snapshot of the owner profile at submit time
+	generator: ReportGenerator;
 	status: ReportStatus;
 	content: string | null; // Markdown; null while pending/failed
 	failureReason: string | null; // set only when status is 'failed'

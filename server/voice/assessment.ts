@@ -223,9 +223,9 @@ async function advanceVoiceAssessment(
 		db.prepare(
 			`INSERT INTO reports
 				(id, interview_id, voice_conversation_id, owner_id, business_name, locale,
-				status, content, failure_reason, consultation_requested_at, created_at,
-				ready_at, generate_attempts, generate_after)
-			 VALUES (?, NULL, ?, ?, ?, ?, 'ready', ?, NULL, NULL, ?, ?, 0, NULL)`,
+				generator, status, content, failure_reason, consultation_requested_at,
+				created_at, ready_at, generate_attempts, generate_after)
+			 VALUES (?, NULL, ?, ?, ?, ?, 'dify', 'ready', ?, NULL, NULL, ?, ?, 0, NULL)`,
 		).run(
 			reportId,
 			id,

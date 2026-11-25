@@ -95,6 +95,10 @@ function initSchema(db: DatabaseSync): void {
 			owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			business_name TEXT NOT NULL,
 			locale TEXT NOT NULL,
+			-- What produced the content: the rule-based demo analyzer or the
+			-- Dify post-call assessment. Drives the honest page label.
+			generator TEXT NOT NULL DEFAULT 'rule_based'
+				CHECK (generator IN ('rule_based', 'dify')),
 			status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'failed')),
 			content TEXT,
 			failure_reason TEXT,
@@ -256,6 +260,8 @@ function migrateLegacySchema(db: DatabaseSync): void {
 				owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 				business_name TEXT NOT NULL,
 				locale TEXT NOT NULL,
+				generator TEXT NOT NULL DEFAULT 'rule_based'
+					CHECK (generator IN ('rule_based', 'dify')),
 				status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'failed')),
 				content TEXT,
 				failure_reason TEXT,
@@ -281,6 +287,14 @@ function migrateLegacySchema(db: DatabaseSync): void {
 			'CREATE INDEX IF NOT EXISTS idx_reports_pending ON reports(status, generate_after);',
 		);
 		db.exec('PRAGMA foreign_keys = ON;');
+	}
+	// Legacy reports tables predate the generator column; everything produced
+	// before the Dify assessment was rule-based demo output, so the default
+	// label is the honest migration for existing rows.
+	if (reportColumns.size > 0 && !reportColumns.has('generator')) {
+		db.exec(
+			"ALTER TABLE reports ADD COLUMN generator TEXT NOT NULL DEFAULT 'rule_based'",
+		);
 	}
 	const voiceColumns = tableColumns(db, 'voice_sessions');
 	if (voiceColumns.size > 0 && !voiceColumns.has('assessment_status')) {
