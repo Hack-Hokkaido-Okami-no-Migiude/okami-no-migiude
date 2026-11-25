@@ -1,17 +1,25 @@
-// Interview flow state machine for the embedded-agent surface: session
-// gating, the availability probe, the consent gate (which must complete
-// before the widget is offered or loaded), the live start, the call and the
+// Interview flow state machine for the interview surface: session gating,
+// the availability probe, the consent gate (which must complete before the
+// conversation is minted or started), the live start, the call and the
 // post-call monitoring. The API client and clock are injected so the whole
 // machine is unit-testable without a browser build.
 //
-// There is no UI timer: the agent manages the session length, and the
-// transcript reaches the server through the post-call webhook even after the
-// owner has left the page, matched by the server-issued interview id. The
-// page never submits a transcript itself; `refresh()` only polls the current
-// interview so the page can follow research → submitted → report states.
+// The live conversation itself is started from a server-minted token:
+// entering the live phase mints a WebRTC conversation for the active
+// interview (POST /api/voice/sessions) and exposes the grant for the page's
+// conversation controller. The mint never precedes consent — live entry
+// happens only through start() (gated on the consent phase and all three
+// consents) or through resuming an interview whose consent the server
+// already recorded at start. There is no UI timer: the agent manages the
+// session length, and the transcript reaches the server through the
+// post-call webhook even after the owner has left the page, matched by the
+// mint-time conversation↔interview record. The page never submits a
+// transcript itself; `refresh()` only polls the current interview so the
+// page can follow research → submitted → report states.
 import {
 	ApiFailure,
 	type AgentAvailability,
+	type ConversationGrant,
 	type InterviewClient,
 } from '../utils/interview-api.ts';
 import { type ComputedRef, type Ref, computed, ref } from 'vue';
@@ -73,6 +81,12 @@ export type InterviewFlowController = {
 	canStart: ComputedRef<boolean>;
 	error: Ref<FlowErrorCode | null>;
 	availability: Ref<AgentAvailability | null>;
+	/**
+	 * The minted conversation for the live phase (null outside it): the
+	 * page's conversation controller consumes the token to start the
+	 * WebRTC session.
+	 */
+	conversation: Ref<ConversationGrant | null>;
 	/** The active interview's research surface (live rows only). */
 	research: ComputedRef<InterviewResearchSurface | null>;
 	/** The active interview's Dify assessment surface (live rows only). */
@@ -104,6 +118,7 @@ export function createInterviewFlow(
 	const consents = ref<ConsentsState>(emptyConsents());
 	const error = ref<FlowErrorCode | null>(null);
 	const availability = ref<AgentAvailability | null>(null);
+	const conversation = ref<ConversationGrant | null>(null);
 
 	const canStart = computed(() => allConsentsGiven(consents.value));
 	const research = computed(() => interview.value?.research ?? null);
@@ -146,24 +161,49 @@ export function createInterviewFlow(
 		reportId: string | null;
 	};
 
-	function applyCurrent(result: InterviewsCurrentLike) {
+	/**
+	 * Enters the call view: mints the WebRTC conversation for the active
+	 * interview before the live phase renders, so the grant (or a mint
+	 * error) is settled by the time the page reacts to the phase. A mint
+	 * failure never drops the interview itself — the poll keeps the state
+	 * fresh and the live view shows the error.
+	 */
+	async function enterLive() {
+		try {
+			conversation.value = await deps.client.mintConversation();
+			error.value = null;
+		} catch (failure) {
+			conversation.value = null;
+			error.value = toFlowCode(codeOf(failure));
+		}
+		phase.value = 'live';
+	}
+
+	async function applyCurrent(result: InterviewsCurrentLike) {
 		error.value = null;
 		interview.value = result.interview;
 		reportId.value = result.reportId;
 		const current = result.interview;
 		if (current === null) {
+			conversation.value = null;
 			consents.value = emptyConsents();
 			phase.value = 'intro';
 			return;
 		}
 		if (current.status === 'submitted') {
+			conversation.value = null;
 			consents.value = emptyConsents();
 			phase.value = 'submitted';
 			return;
 		}
-		// Active interview: live rows resume in the call view; demo rows are
-		// driven headlessly by the verification path, never from this page.
-		phase.value = current.mode === 'live' ? 'live' : 'demo-active';
+		// Active interview: live rows resume in the call view (a fresh
+		// conversation is minted for them); demo rows are driven headlessly
+		// by the verification path, never from this page.
+		if (current.mode === 'live') {
+			await enterLive();
+			return;
+		}
+		phase.value = 'demo-active';
 	}
 
 	async function init() {
@@ -179,7 +219,7 @@ export function createInterviewFlow(
 			&& (existing.interview.status === 'submitted'
 				|| existing.interview.mode === 'demo')
 		) {
-			applyCurrent(existing);
+			await applyCurrent(existing);
 			return;
 		}
 		if (!(await probeAvailability())) {
@@ -194,7 +234,7 @@ export function createInterviewFlow(
 			return;
 		}
 		if (existing !== null) {
-			applyCurrent(existing);
+			await applyCurrent(existing);
 		}
 	}
 
@@ -232,15 +272,16 @@ export function createInterviewFlow(
 		error.value = null;
 		try {
 			const result = await deps.client.start();
-			interview.value = result.interview;
-			reportId.value = null;
-			phase.value = 'live';
+			// applyCurrent routes into the live view and mints the
+			// conversation — the mint therefore always follows the completed
+			// consent gate, never preceding it.
+			await applyCurrent({ interview: result.interview, reportId: null });
 		} catch (failure) {
 			const code = codeOf(failure);
 			if (code === 'already_submitted' || code === 'interview_active') {
 				const result = await loadCurrent();
 				if (result !== null) {
-					applyCurrent(result);
+					await applyCurrent(result);
 				}
 				return;
 			}
@@ -258,6 +299,9 @@ export function createInterviewFlow(
 		if (phase.value !== 'live') {
 			return;
 		}
+		// The grant is consumed once the page started (or failed to start)
+		// the conversation; a restart mints a fresh one.
+		conversation.value = null;
 		phase.value = 'ended';
 	}
 
@@ -297,6 +341,7 @@ export function createInterviewFlow(
 		canStart,
 		error,
 		availability,
+		conversation,
 		research,
 		assessment,
 		notifySession,

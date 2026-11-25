@@ -1,11 +1,13 @@
-// Interview API client for the embedded-agent surface (/interview).
-// Transport is injected so the client stays pure and unit-testable; the page
-// supplies a `$fetch`-backed transport. The consent payload is fixed here:
-// the client always sends `consent: true` with `mode: 'live'` — the headless
-// demo verification path drives `mode: 'demo'` directly against the API and
+// Interview API client for the interview surface (/interview). Transport is
+// injected so the client stays pure and unit-testable; the page supplies a
+// `$fetch`-backed transport. The consent payload is fixed here: the client
+// always sends `consent: true` with `mode: 'live'` — the headless demo
+// verification path drives `mode: 'demo'` directly against the API and
 // never through this client. The transcript itself is not submitted from the
 // page at all: the post-call webhook (HMAC, server-to-server) delivers it,
-// matched by the server-issued interview id.
+// matched by the mint-time conversation↔interview association, and
+// `mintConversation()` is the only way the page obtains a conversation
+// token (the server refuses a mint without an active live interview).
 
 import type {
 	InterviewAssessmentSurface,
@@ -40,10 +42,23 @@ export type InterviewsCurrentResult = {
 	reportId: string | null;
 };
 
+/** A minted WebRTC conversation for the active live interview. */
+export type ConversationGrant = {
+	conversationId: string;
+	conversationToken: string;
+};
+
 export type InterviewClient = {
 	availability(): Promise<AgentAvailability>;
 	current(): Promise<InterviewsCurrentResult>;
 	start(): Promise<{ interview: InterviewCurrent }>;
+	/**
+	 * Mints a conversation for the caller's active live interview
+	 * (POST /api/voice/sessions). The server records the
+	 * conversation↔interview association at mint, so the webhook match
+	 * needs nothing more from the page.
+	 */
+	mintConversation(): Promise<ConversationGrant>;
 };
 
 export class ApiFailure extends Error {
@@ -236,6 +251,27 @@ export function createInterviewClient(http: InterviewHttp): InterviewClient {
 					json.interview,
 					response.status,
 				),
+			};
+		},
+
+		async mintConversation(): Promise<ConversationGrant> {
+			const response = await send('/api/voice/sessions', 'POST');
+			if (response.status !== 200 && response.status !== 201) {
+				failWithEnvelope(response);
+			}
+			const json = response.json;
+			if (
+				!isJsonObject(json)
+				|| typeof json.conversationId !== 'string'
+				|| json.conversationId.length === 0
+				|| typeof json.conversationToken !== 'string'
+				|| json.conversationToken.length === 0
+			) {
+				failWithEnvelope(response);
+			}
+			return {
+				conversationId: json.conversationId,
+				conversationToken: json.conversationToken,
 			};
 		},
 	};

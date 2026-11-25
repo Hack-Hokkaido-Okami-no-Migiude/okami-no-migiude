@@ -1,9 +1,10 @@
 // Owner-facing interview UI strings (contract §2: every owner-facing string
 // exists in ja and en; no i18n framework — plain locale dictionaries).
 // `en` is typed against `typeof ja` so the two locales cannot drift apart.
-// The interview is a live conversation with the embedded AI agent (Shima
-// Enaga); there is no scripted sample path and no local microphone capture
-// in this surface, so no strings exist for either.
+// The interview is a live conversation with the AI agent (Shima Enaga)
+// started from a server-minted conversation token; the browser microphone
+// is used only by that conversation, and its connection failures carry
+// their own strings below.
 import type { Locale } from '../../shared/types/domain.ts';
 
 const ja = {
@@ -82,12 +83,22 @@ const ja = {
 		agentName: 'シマ エナガ',
 		entering: '面談を開始しました。シマ エナガがまもなく話しかけます。',
 		resumed: '進行中の面談を再開しました。',
-		inCall: 'シマ エナガと話しています。終えるときは、ウィジェットの終了ボタンを使うか、下の「面談を終了する」を選んでください。',
+		inCall: 'シマ エナガと話しています。終えるときは、下の「面談を終了する」を選んでください。',
 		endButton: '面談を終了する',
 		ending: '終了しています…',
 		ended: '面談を終了しました。記録の保存を確認しています。このページを離れても、記録は自動で保存されます。',
 		backHome: 'ホームに戻る',
 		checkAgain: '面談の状態をもう一度確認する',
+	},
+	// Live-conversation connection failures (the server-minted session could
+	// not start or dropped). The interview itself keeps running server-side.
+	callFailures: {
+		unsupported:
+			'お使いのブラウザでは音声通話を利用できません。マイクに対応したブラウザでお試しください。',
+		mic: 'マイクへのアクセスが許可されませんでした。ブラウザの設定を確認して、もう一度お試しください。',
+		sdk: '音声クライアントを読み込めませんでした。ページを再読み込みしてお試しください。',
+		connection:
+			'音声接続を開始できませんでした。しばらく待ってから、もう一度お試しください。',
 	},
 	research: {
 		heading: '調査データ',
@@ -211,12 +222,22 @@ const en: InterviewStrings = {
 		entering:
 			'The interview has started. Shima Enaga will speak to you shortly.',
 		resumed: 'The interview in progress has been resumed.',
-		inCall: 'You are talking with Shima Enaga. When you are done, use the widget’s end button or choose “End the interview” below.',
+		inCall: 'You are talking with Shima Enaga. When you are done, choose “End the interview” below.',
 		endButton: 'End the interview',
 		ending: 'Ending…',
 		ended: 'The interview has ended. We are waiting for the record to be saved. You can leave this page; the record is saved automatically either way.',
 		backHome: 'Back to home',
 		checkAgain: 'Check the interview status again',
+	},
+	// Live-conversation connection failures (the server-minted session could
+	// not start or dropped). The interview itself keeps running server-side.
+	callFailures: {
+		unsupported:
+			'This browser cannot make voice calls. Please try a browser with microphone support.',
+		mic: 'Microphone access was denied. Please check your browser settings and try again.',
+		sdk: 'The voice client could not be loaded. Please reload the page and try again.',
+		connection:
+			'The voice connection could not be started. Please wait a moment and try again.',
 	},
 	research: {
 		heading: 'Research data',
