@@ -10,6 +10,7 @@ import {
 	type VoiceSessionRow,
 } from '../../../voice/model';
 import type {
+	VoiceAssessmentStatus,
 	VoiceResearchStatus,
 	VoiceSessionStatus,
 } from '#shared/types/voice';
@@ -38,5 +39,9 @@ export function toVoiceSessionStatus(row: VoiceSessionRow): VoiceSessionStatus {
 		},
 		transcriptRecorded: row.transcript !== null,
 		transcript: row.transcript,
+		assessment: {
+			status: row.assessment_status as VoiceAssessmentStatus,
+			reportId: row.assessment_report_id,
+		},
 	};
 }

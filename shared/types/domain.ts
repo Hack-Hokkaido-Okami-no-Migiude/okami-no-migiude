@@ -72,7 +72,8 @@ export type ReportStatus = 'pending' | 'ready' | 'failed';
 
 export type Report = {
 	id: string;
-	interviewId: string;
+	/** Null for voice-sourced reports (they come from a voice session). */
+	interviewId: string | null;
 	ownerId: string;
 	businessName: string; // snapshot of the owner profile at submit time
 	locale: Locale; // snapshot of the owner profile at submit time

@@ -1,17 +1,20 @@
 // Voice agent configuration (merged from the okami_voice demo). Live voice
 // chat is available only when every required credential is present in the
-// server environment. DIFY_API_KEY is reserved for the later assessment
-// wiring and is deliberately not part of the gate.
+// server environment. Dify powers the post-call assessment; it has its own
+// gate (difyConfigured) and is deliberately not part of voiceConfigured, so
+// a deployment without Dify keeps the conversation + research surface.
 //
-// QA knobs: ELEVENLABS_API_BASE_URL / LINKUP_API_BASE_URL point the provider
-// calls at loopback stubs, mirroring MAIL_RESEND_BASE_URL — https always
-// allowed, plain http only for loopback hosts so nothing else can be
-// exfiltrated over plain HTTP by a stray env value.
+// QA knobs: ELEVENLABS_API_BASE_URL / LINKUP_API_BASE_URL /
+// DIFY_API_BASE_URL point the provider calls at loopback stubs, mirroring
+// MAIL_RESEND_BASE_URL — https always allowed, plain http only for loopback
+// hosts so nothing else can be exfiltrated over plain HTTP by a stray env
+// value.
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
 export const ELEVENLABS_DEFAULT_BASE_URL = 'https://api.elevenlabs.io';
 export const LINKUP_DEFAULT_BASE_URL = 'https://api.linkup.so';
+export const DIFY_DEFAULT_BASE_URL = 'https://api.dify.ai';
 
 export type VoiceConfig = {
 	elevenLabsApiKey: string;
@@ -19,10 +22,13 @@ export type VoiceConfig = {
 	elevenLabsWebhookSecret: string;
 	researchToolSecret: string;
 	linkupApiKey: string;
+	difyApiKey: string;
 	/** Resolved ElevenLabs base URL; '' when an override is unsafe. */
 	elevenLabsApiBaseUrl: string;
 	/** Resolved Linkup base URL; '' when an override is unsafe. */
 	linkupApiBaseUrl: string;
+	/** Resolved Dify base URL; '' when an override is unsafe. */
+	difyApiBaseUrl: string;
 };
 
 function trimmedEnv(name: string): string {
@@ -56,6 +62,7 @@ export function readVoiceConfig(): VoiceConfig {
 		elevenLabsWebhookSecret: trimmedEnv('ELEVENLABS_WEBHOOK_SECRET'),
 		researchToolSecret: trimmedEnv('RESEARCH_TOOL_SECRET'),
 		linkupApiKey: trimmedEnv('LINKUP_API_KEY'),
+		difyApiKey: trimmedEnv('DIFY_API_KEY'),
 		elevenLabsApiBaseUrl: providerBaseUrl(
 			'ELEVENLABS_API_BASE_URL',
 			ELEVENLABS_DEFAULT_BASE_URL,
@@ -64,6 +71,7 @@ export function readVoiceConfig(): VoiceConfig {
 			'LINKUP_API_BASE_URL',
 			LINKUP_DEFAULT_BASE_URL,
 		),
+		difyApiBaseUrl: providerBaseUrl('DIFY_API_BASE_URL', DIFY_DEFAULT_BASE_URL),
 	};
 }
 
@@ -79,4 +87,10 @@ export function voiceConfigured(): boolean {
 		&& config.elevenLabsApiBaseUrl.length > 0
 		&& config.linkupApiBaseUrl.length > 0
 	);
+}
+
+/** The post-call assessment (Dify report + mail) runs only when configured. */
+export function difyConfigured(): boolean {
+	const config = readVoiceConfig();
+	return config.difyApiKey.length > 0 && config.difyApiBaseUrl.length > 0;
 }
