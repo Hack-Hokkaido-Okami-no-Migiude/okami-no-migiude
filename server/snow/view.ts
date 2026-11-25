@@ -3,7 +3,7 @@
 import { SNOW_KINDS, checkSnow } from './jma';
 import type { SnowCheck } from './jma';
 import { draftBody } from './messages';
-import { innDate, listArrivals, listMessagesFor } from './model';
+import { deliveryFor, innDate, listArrivals, listMessagesFor } from './model';
 import type { MessageRow, ReservationRow } from './model';
 import type { OwnerProfile } from '#shared/types/domain';
 
@@ -35,6 +35,9 @@ function messageView(
 		createdAt: message.created_at,
 		approvedAt: message.approved_at,
 		sentAt: message.sent_at,
+		// How it went out (once sent), or where it would go if sent now.
+		channel: message.channel,
+		deliveryChannel: deliveryFor(guest.contact).channel,
 		// What the original draft says, in the okami's own language.
 		glossJa: message.language === 'ja' ? null : draftBody(vars, 'ja'),
 		glossEn: message.language === 'en' ? null : draftBody(vars, 'en'),

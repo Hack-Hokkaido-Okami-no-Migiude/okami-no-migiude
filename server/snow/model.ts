@@ -2,10 +2,12 @@
 // sync copies them one way). Every query is scoped to the signed-in owner.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { dataDir } from '../utils/env';
+import { dataDir, mailFrom } from '../utils/env';
 import { getDb, inTransaction } from '../utils/db';
 import { newId } from '../utils/ids';
-import { draftBody } from './messages';
+import { draftBody, snowSubject } from './messages';
+import { EMAIL_PATTERN } from '../utils/validate';
+import { deliverLiveMail, liveMailConfigured } from '../mail/resend';
 import type { GuestLanguage } from './messages';
 
 export type ReservationRow = {
@@ -35,6 +37,7 @@ export type MessageRow = {
 	created_at: string;
 	approved_at: string | null;
 	sent_at: string | null;
+	channel: 'local' | 'email' | null;
 };
 
 const INN_UTC_OFFSET_MS = 9 * 60 * 60 * 1000; // inns are in Japan (JST, no DST)
@@ -173,7 +176,7 @@ export function loadSampleGuests(
 			guestName: 'Emily Carter',
 			guestCountry: 'Australia',
 			language: 'en',
-			contact: 'emily@example.test',
+			contact: demoGuestEmail() ?? 'emily@example.test',
 			arrivalDate: today,
 			nights: 3,
 			arrivesBy: 'Rental car',
@@ -209,6 +212,16 @@ export function loadSampleGuests(
 		}
 		return samples.length;
 	});
+}
+
+/**
+ * SNOW_DEMO_GUEST_EMAIL: the sample English-speaking guest gets this address,
+ * so approving and sending her message delivers a real email to the
+ * presenter's phone (with Resend's test sender: the Resend account email).
+ */
+function demoGuestEmail(): string | null {
+	const value = (process.env.SNOW_DEMO_GUEST_EMAIL || '').trim();
+	return EMAIL_PATTERN.test(value) ? value : null;
 }
 
 export type InnInfo = { innName: string; innPhone: string | null };
@@ -304,25 +317,84 @@ export function discardMessage(ownerId: string, id: string): boolean {
 	return Number(result.changes) > 0;
 }
 
+export type Delivery = { channel: 'email'; to: string } | { channel: 'local' };
+
 /**
- * Sends an approved message. Demo delivery: the message is written to
- * ${DATA_DIR}/guest-outbox/<id>.txt and nothing leaves the machine (no LINE
- * or email integration yet). Only approved messages can be sent.
+ * Where an approved message would go: a real email through Resend when the
+ * Resend key is configured and the guest's contact is an email address,
+ * otherwise the demo guest outbox under DATA_DIR (nothing leaves the machine).
  */
-export function sendMessage(ownerId: string, id: string, now: string): boolean {
-	return inTransaction((db) => {
-		const message = db
-			.prepare(
-				`SELECT * FROM guest_messages WHERE id = ? AND owner_id = ? AND status = 'approved'`,
-			)
-			.get(id, ownerId) as unknown as MessageRow | undefined;
-		if (!message) {
-			return false;
+export function deliveryFor(contact: string | null): Delivery {
+	const to = (contact ?? '').trim();
+	if (liveMailConfigured() && EMAIL_PATTERN.test(to)) {
+		return { channel: 'email', to };
+	}
+	return { channel: 'local' };
+}
+
+/**
+ * Sender for snow-day email. Resend's test sender (onboarding@resend.dev)
+ * delivers only to the address that owns the Resend account, which is all
+ * the demo needs and needs no domain setup. MAIL_FROM overrides it once a
+ * verified domain exists; the local-only default is never used for Resend.
+ */
+function snowSender(innName: string): string {
+	const configured = mailFrom();
+	const address =
+		configured.endsWith('@localhost') ?
+			'onboarding@resend.dev'
+		:	configured;
+	return address.includes('<') ? address : `${innName} <${address}>`;
+}
+
+export type SendResult = 'sent' | 'not_approved' | 'delivery_failed';
+
+/**
+ * Sends an approved message (never a draft). Email goes through Resend with
+ * the message id as the idempotency key, so a retry after a timeout can never
+ * send twice. If the email cannot be sent the message stays approved and the
+ * owner can try again. The local channel writes
+ * ${DATA_DIR}/guest-outbox/<id>.txt.
+ */
+export async function sendMessage(
+	ownerId: string,
+	id: string,
+	innName: string,
+	now: () => string,
+): Promise<SendResult> {
+	const db = getDb();
+	const message = db
+		.prepare(
+			`SELECT * FROM guest_messages WHERE id = ? AND owner_id = ? AND status = 'approved'`,
+		)
+		.get(id, ownerId) as unknown as MessageRow | undefined;
+	if (!message) {
+		return 'not_approved';
+	}
+	const guest = db
+		.prepare(
+			'SELECT * FROM guest_reservations WHERE id = ? AND owner_id = ?',
+		)
+		.get(message.reservation_id, ownerId) as unknown as
+		ReservationRow | undefined;
+	const delivery = deliveryFor(guest?.contact ?? null);
+	if (delivery.channel === 'email') {
+		try {
+			await deliverLiveMail({
+				id: message.id,
+				to: delivery.to,
+				from: snowSender(innName),
+				subject: snowSubject(innName, message.language),
+				body: message.body,
+			});
+		} catch (error) {
+			console.error(
+				'[snow] email delivery failed:',
+				error instanceof Error ? error.message : 'unknown error',
+			);
+			return 'delivery_failed';
 		}
-		const guest = db
-			.prepare('SELECT * FROM guest_reservations WHERE id = ?')
-			.get(message.reservation_id) as unknown as
-			ReservationRow | undefined;
+	} else {
 		const dir = join(dataDir(), 'guest-outbox');
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(
@@ -331,16 +403,17 @@ export function sendMessage(ownerId: string, id: string, now: string): boolean {
 				`To: ${guest?.guest_name ?? ''}${guest?.contact ? ` <${guest.contact}>` : ''}`,
 				`Language: ${message.language}`,
 				`Approved: ${message.approved_at}`,
-				`Sent: ${now}`,
+				`Sent: ${now()}`,
 				'X-Okami-Demo: local-guest-outbox',
 				'',
 				message.body,
 			].join('\n'),
 			'utf8',
 		);
-		db.prepare(
-			`UPDATE guest_messages SET status = 'sent', sent_at = ? WHERE id = ?`,
-		).run(now, id);
-		return true;
-	});
+	}
+	db.prepare(
+		`UPDATE guest_messages SET status = 'sent', sent_at = ?, channel = ?
+		 WHERE id = ? AND status = 'approved'`,
+	).run(now(), delivery.channel, id);
+	return 'sent';
 }

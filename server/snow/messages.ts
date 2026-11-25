@@ -150,6 +150,20 @@ export function draftBody(vars: DraftVars, language: GuestLanguage): string {
 	}
 }
 
+/** Email subject in the guest's language. */
+export function snowSubject(innName: string, language: string): string {
+	switch (language) {
+		case 'ja':
+			return `【${innName}】大雪に関するご到着のご案内`;
+		case 'zh-TW':
+			return `【${innName}】關於降雪與您抵達的通知`;
+		case 'ko':
+			return `[${innName}] 폭설 관련 도착 안내`;
+		default:
+			return `${innName}: snow update for your arrival`;
+	}
+}
+
 /** Labels the owner sees for a snow kind (ja/en UI). */
 export function kindLabel(kind: SnowKind, locale: 'ja' | 'en'): string {
 	return locale === 'ja' ? kind.nameJa : kind.nameEn;
