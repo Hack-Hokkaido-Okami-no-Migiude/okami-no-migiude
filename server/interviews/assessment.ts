@@ -3,7 +3,6 @@
 // queues the Dify assessment; the engine runs the transcript-informed deep
 // research pass and writes the Dify report with the interview id attached.
 import { enqueueReportReadyMails } from '../mail';
-import { nowIso } from '../utils/clock';
 import { newId } from '../utils/ids';
 import { inTransaction } from '../utils/db';
 import {
