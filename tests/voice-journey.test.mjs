@@ -1,12 +1,12 @@
-// Voice-surface retirement journey: spawns the built Nitro server with
+// Voice-session endpoint journey: spawns the built Nitro server with
 // loopback stubs for the ElevenLabs token endpoint, the Linkup research API
 // and the Dify workflow run (via the ELEVENLABS_API_BASE_URL /
-// LINKUP_API_BASE_URL / DIFY_API_BASE_URL QA overrides). Proves that after
-// the interview consolidation the old voice-session API refuses NEW
-// conversations (410 superseded) while webhook processing, background
-// research and the Dify assessment keep working for conversations that
-// already existed. No HTTP test backdoors: lifecycle details are read from
-// the synthetic SQLite data directly.
+// LINKUP_API_BASE_URL / DIFY_API_BASE_URL QA overrides). Proves that the
+// session endpoint mints conversations only for an active live interview
+// (refused otherwise) while webhook processing, background research and the
+// Dify assessment keep working for voice conversations that already existed
+// before the interview consolidation. No HTTP test backdoors: lifecycle
+// details are read from the synthetic SQLite data directly.
 // Run: node --test tests/voice-journey.test.mjs   (needs `npm run build`)
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +43,19 @@ const OWNER_A = {
 		businessName: '湯の花旅館',
 		municipality: 'ニセコ町',
 		locale: 'ja',
+	},
+};
+
+// A second owner without an interview: their mint must be refused even
+// while the first owner's live interview is active.
+const OWNER_B = {
+	email: 'voice-owner-b@example.test',
+	password: 'voice-owner-b-pass-1234',
+	profile: {
+		name: 'John Birch',
+		businessName: 'Birch Snow Tours',
+		municipality: 'Kutchan Town',
+		locale: 'en',
 	},
 };
 
@@ -504,7 +517,7 @@ async function signupOwner(baseUrl, email) {
 }
 
 test(
-	'the retired voice surface is unavailable without credentials',
+	'the voice session endpoint is unavailable without credentials',
 	{ timeout: 120000 },
 	async () => {
 		assert.equal(
@@ -546,7 +559,8 @@ test(
 			);
 
 			const jar = await signupOwner(server.baseUrl, OWNER_A.email);
-			// New conversations are refused even when nothing is configured.
+			// The mint needs the voice agent configured: without it the honest
+			// unavailable envelope answers before anything else.
 			const start = await request(
 				server.baseUrl,
 				'POST',
@@ -556,11 +570,11 @@ test(
 					jar,
 				},
 			);
-			expectStatus('start voice session (unconfigured)', start, 410);
+			expectStatus('start voice session (unconfigured)', start, 503);
 			expectErrorCode(
 				'start voice session (unconfigured)',
 				start,
-				'superseded',
+				'voice_unavailable',
 			);
 
 			const research = await request(
@@ -654,8 +668,16 @@ test(
 			const staffJar = newCookieJar();
 			await signupOwnerWith(server.baseUrl, jar);
 			await loginStaff(server.baseUrl, staffJar);
+			const jarB = newCookieJar();
+			const signupB = await request(
+				server.baseUrl,
+				'POST',
+				'/api/auth/signup',
+				{ body: OWNER_B, jar: jarB },
+			);
+			expectStatus('signup owner B', signupB, 201);
 
-			console.log('## step: new conversations are refused');
+			console.log('## step: minting requires an active live interview');
 			const staffStart = await request(
 				server.baseUrl,
 				'POST',
@@ -675,11 +697,11 @@ test(
 				'/api/voice/sessions',
 				{ body: { consent: true }, jar },
 			);
-			expectStatus('new voice session is refused', rejected, 410);
+			expectStatus('mint without an interview is refused', rejected, 409);
 			expectErrorCode(
-				'new voice session is refused',
+				'mint without an interview is refused',
 				rejected,
-				'superseded',
+				'no_active_interview',
 			);
 
 			const rejectedWithoutConsent = await request(
@@ -691,7 +713,12 @@ test(
 			expectStatus(
 				'the refusal does not depend on the payload',
 				rejectedWithoutConsent,
-				410,
+				409,
+			);
+			expectErrorCode(
+				'the refusal does not depend on the payload',
+				rejectedWithoutConsent,
+				'no_active_interview',
 			);
 
 			console.log('## step: the pre-existing conversation keeps working');
@@ -1200,6 +1227,90 @@ test(
 						status: 'sent',
 					},
 				]);
+			});
+
+			console.log(
+				'## step: an active live interview mints a conversation',
+			);
+			const liveStart = await request(
+				server.baseUrl,
+				'POST',
+				'/api/interviews/start',
+				{ jar, body: { consent: true, mode: 'live' } },
+			);
+			expectStatus('start live interview', liveStart, 201);
+			assert.equal(liveStart.json.interview.mode, 'live');
+
+			// Owner B still has no live interview of their own: the lookup
+			// is by owner, so A's interview must not mint for them.
+			const otherOwnerMint = await request(
+				server.baseUrl,
+				'POST',
+				'/api/voice/sessions',
+				{ jar: jarB, body: { consent: true } },
+			);
+			expectStatus('mint for another owner', otherOwnerMint, 409);
+			expectErrorCode(
+				'mint for another owner',
+				otherOwnerMint,
+				'no_active_interview',
+			);
+
+			// The owner's active live interview mints through the loopback
+			// token stub — the same wire shape the old /voice surface used.
+			const mint = await request(
+				server.baseUrl,
+				'POST',
+				'/api/voice/sessions',
+				{ jar, body: { consent: true } },
+			);
+			expectStatus('mint for the active live interview', mint, 201);
+			assert.deepEqual(mint.json, {
+				conversationId: 'conv_stub_1',
+				conversationToken: 'tok_1',
+			});
+			assert.equal(stub.state.tokensIssued, 1);
+
+			console.log(
+				'## step: the webhook falls back to the conversation id',
+			);
+			// No dynamic variables: the mint-time association recorded on
+			// the interview row is the only way to find the interview.
+			const fallbackRaw = Buffer.from(
+				JSON.stringify({
+					type: 'post_call_transcription',
+					data: {
+						agent_id: VOICE_ENV.ELEVENLABS_AGENT_ID,
+						conversation_id: 'conv_stub_1',
+						transcript: transcriptTurns,
+					},
+				}),
+				'utf8',
+			);
+			const fallback = await requestRaw(
+				server.baseUrl,
+				'/api/voice/elevenlabs/post-call',
+				{
+					'content-type': 'application/json',
+					'elevenlabs-signature': signWebhook(
+						fallbackRaw,
+						Math.floor(Date.now() / 1000),
+					),
+				},
+				fallbackRaw,
+			);
+			expectStatus('post-call matched by conversation id', fallback, 200);
+			assert.deepEqual(fallback.json, { received: true });
+
+			withDb(dir, (db) => {
+				const row = db
+					.prepare(
+						'SELECT conversation_id, status, transcript FROM interviews WHERE id = ?',
+					)
+					.get(liveStart.json.interview.id);
+				assert.equal(row.conversation_id, 'conv_stub_1');
+				assert.equal(row.status, 'submitted');
+				assert.match(row.transcript, /予約を手で写しています/);
 			});
 		} finally {
 			await server.close();

@@ -82,6 +82,12 @@ function initSchema(db: DatabaseSync): void {
 			deadline_at TEXT NOT NULL,
 			submitted_at TEXT,
 			transcript TEXT,
+			-- The conversation minted for this interview (POST
+			-- /api/voice/sessions). The post-call webhook falls back to it
+			-- when the client could not pass the interview id as a dynamic
+			-- variable. Nullable: demo rows and interviews minted before the
+			-- association existed have none.
+			conversation_id TEXT,
 			-- Live-agent lifecycle (mode 'live'): background research over the
 			-- owner's profile intake plus the post-call Dify assessment. Both
 			-- are durable state on the row (same pattern as voice_sessions),
@@ -217,6 +223,12 @@ function initSchema(db: DatabaseSync): void {
 		CREATE INDEX IF NOT EXISTS idx_guest_messages_owner ON guest_messages(owner_id, status);
 	`);
 	migrateLegacySchema(db);
+	// Created after the legacy migration so the index covers fresh and
+	// migrated schemas alike: the conversation_id column may have just been
+	// added to a pre-migration interviews table by ALTER TABLE above.
+	db.exec(
+		'CREATE INDEX IF NOT EXISTS idx_interviews_conversation ON interviews(conversation_id);',
+	);
 }
 
 /**
@@ -343,6 +355,12 @@ function migrateLegacySchema(db: DatabaseSync): void {
 			ALTER TABLE interviews ADD COLUMN assessment_research_poll_at INTEGER;
 			ALTER TABLE interviews ADD COLUMN assessment_research_cases TEXT;
 		`);
+	}
+	// Legacy interviews tables predate the minted-conversation association;
+	// the column is nullable and stays NULL for rows minted before it
+	// existed (their conversations cannot be back-resolved).
+	if (interviewColumns.size > 0 && !interviewColumns.has('conversation_id')) {
+		db.exec('ALTER TABLE interviews ADD COLUMN conversation_id TEXT;');
 	}
 	const voiceColumns = tableColumns(db, 'voice_sessions');
 	if (voiceColumns.size > 0 && !voiceColumns.has('assessment_status')) {

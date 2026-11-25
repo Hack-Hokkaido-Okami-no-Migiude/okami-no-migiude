@@ -3,12 +3,14 @@
 // (no session cookie, no same-origin check). Two destinations:
 // 1. previously created voice sessions (kept working after the /voice
 //    retirement — conversation only, no interview or report rows);
-// 2. live interviews, matched through the server-issued interview id the
-//    page passed to the widget as a dynamic variable, so the transcript
-//    still lands after the owner has left the page. A stored live
-//    transcript marks the interview submitted and arms the Dify
-//    assessment; without DIFY_API_KEY the transcript is stored but the
-//    assessment is marked failed (honest unavailable state on the site).
+// 2. live interviews, matched first through the server-issued interview id
+//    the page passed as a dynamic variable and, when the payload carries
+//    none (or an unknown one), through the conversation id the mint
+//    endpoint recorded on the interview row — so the transcript still lands
+//    after the owner has left the page. A stored live transcript marks the
+//    interview submitted and arms the Dify assessment; without DIFY_API_KEY
+//    the transcript is stored but the assessment is marked failed (honest
+//    unavailable state on the site).
 import { getHeader } from 'h3';
 import { defineApi, sendJson } from '../../../utils/api';
 import { apiError } from '../../../utils/errors';
@@ -24,6 +26,7 @@ import {
 	enqueueVoiceAssessment,
 } from '../../../voice/model';
 import {
+	findInterviewByConversation,
 	findInterviewById,
 	saveLiveInterviewTranscript,
 	enqueueInterviewAssessment,
@@ -90,10 +93,19 @@ export default defineApi(async (event) => {
 		}
 		return sendJson(event, 200, { received: true });
 	}
-	const interviewId = readWebhookInterviewId(data);
-	if (interviewId && findInterviewById(interviewId)) {
+	// Interview match: the dynamic variable is primary — the client passes
+	// the server-issued interview id it started the conversation with. The
+	// mint-time conversation association is the fallback for payloads that
+	// carry no variable (or one that matches nothing), so the transcript
+	// still reaches the right interview.
+	const variableInterviewId = readWebhookInterviewId(data);
+	const interview =
+		(variableInterviewId ?
+			findInterviewById(variableInterviewId)
+		:	undefined) ?? findInterviewByConversation(conversationId);
+	if (interview) {
 		const outcome = saveLiveInterviewTranscript(
-			interviewId,
+			interview.id,
 			transcript,
 			nowIso(),
 		);
@@ -103,9 +115,9 @@ export default defineApi(async (event) => {
 			// the assessment is failed immediately so the site can show the
 			// honest unavailable state instead of "preparing" forever.
 			if (difyConfigured()) {
-				enqueueInterviewAssessment(interviewId);
+				enqueueInterviewAssessment(interview.id);
 			} else {
-				failInterviewAssessment(interviewId, 0);
+				failInterviewAssessment(interview.id, 0);
 			}
 		}
 	}

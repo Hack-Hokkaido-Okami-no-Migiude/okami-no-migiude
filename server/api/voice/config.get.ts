@@ -1,6 +1,7 @@
 // GET /api/voice/config — availability flags. `available` covers the full
 // voice-session stack (kept for existing conversations); `agentAvailable`
-// gates the embedded-agent interview surface; `reportEngineAvailable` says
+// gates the live interview surface — the agent id, the webhook secret and
+// the API key that mints conversation tokens; `reportEngineAvailable` says
 // whether the Dify post-call assessment can run. No secrets are exposed.
 import { defineApi, sendJson } from '../../utils/api';
 import {

@@ -783,7 +783,23 @@ test(
 				}),
 				409,
 			);
-			// O13: the retired voice-session API refuses new conversations.
+			// The session endpoint mints conversations only for an active
+			// live interview, and this deployment has no voice agent
+			// configured at all: the honest unavailable envelope answers
+			// before anything else, and a signed-out caller never gets that
+			// far.
+			const voiceSignedOut = await request(
+				a.baseUrl,
+				'POST',
+				'/api/voice/sessions',
+				{},
+			);
+			expectStatus('voice session signed-out', voiceSignedOut, 401);
+			expectErrorCode(
+				'voice session signed-out',
+				voiceSignedOut,
+				'unauthorized',
+			);
 			const voiceRefused = await request(
 				a.baseUrl,
 				'POST',
@@ -793,11 +809,11 @@ test(
 					body: { consent: true },
 				},
 			);
-			expectStatus('new voice session is refused', voiceRefused, 410);
+			expectStatus('voice session unavailable', voiceRefused, 503);
 			expectErrorCode(
-				'new voice session is refused',
+				'voice session unavailable',
 				voiceRefused,
-				'superseded',
+				'voice_unavailable',
 			);
 			expectErrorCode(
 				'start unknown mode',
