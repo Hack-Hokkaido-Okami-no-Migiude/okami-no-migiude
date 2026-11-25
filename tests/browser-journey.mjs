@@ -2217,6 +2217,126 @@ async function runMailChecks(
 	}
 }
 
+// Signed-out interview gate (contract): the visitor is asked to sign in with a
+// safe next=/interview, and after signing in they land back on the interview
+// page, which shows the completed state with the existing report link — not a
+// fresh consent gate. Runs in a throwaway context so no session leaks.
+async function runSignedOutInterviewGateCheck(cdp, baseUrl, artifactsDir) {
+	const { browserContextId: gateContext } = await cdp.send(
+		'Target.createBrowserContext',
+		{ disposeOnDetach: false },
+	);
+	const page = await openPage(cdp, gateContext);
+	try {
+		await navigate(cdp, page, `${baseUrl}/interview`);
+		await pollUntil(
+			'signed-out interview panel',
+			async () =>
+				(await evaluate(
+					cdp,
+					page,
+					`Boolean(document.querySelector('#interview-signin-heading'))`,
+				)) === true,
+		);
+		const askHref = await evaluate(
+			cdp,
+			page,
+			`document.querySelector('section:has(#interview-signin-heading) a.button-primary')?.getAttribute('href') ?? null`,
+		);
+		if (!askHref || !askHref.includes('/sign-in')) {
+			throw new Error(`no sign-in prompt link (href: ${askHref})`);
+		}
+		if (!decodeURIComponent(askHref).includes('next=/interview')) {
+			throw new Error(`sign-in prompt lost next=/interview (${askHref})`);
+		}
+		record(
+			'gate.signedout-signin-ask',
+			'PASS',
+			`signed-out visitor on /interview is asked to sign in (${askHref})`,
+		);
+		await screenshot(cdp, page, '44-gate-signedout', artifactsDir);
+		await evaluate(
+			cdp,
+			page,
+			`document.querySelector('section:has(#interview-signin-heading) a.button-primary').click()`,
+		);
+		await pollUntil('sign-in page with next', async () => {
+			const url = decodeURIComponent(await currentUrl(cdp, page));
+			return url.includes('/sign-in') && url.includes('next=/interview');
+		});
+		await fillField(
+			cdp,
+			page,
+			{
+				kinds: ['input'],
+				types: ['email', 'text'],
+				match: ['email', 'メール'],
+			},
+			OWNER_A.email,
+			'gate sign-in email',
+		);
+		await fillField(
+			cdp,
+			page,
+			{
+				kinds: ['input'],
+				types: ['password'],
+				match: ['password', 'パスワード'],
+			},
+			OWNER_A.password,
+			'gate sign-in password',
+		);
+		await clickElement(
+			cdp,
+			page,
+			{
+				kinds: ['button', 'link'],
+				inForm: true,
+				match: ['ログイン|サインイン|sign.?in|log.?in|送信'],
+			},
+			'gate sign-in submit',
+		);
+		await pollUntil(
+			'return to /interview',
+			async () =>
+				new URL(await currentUrl(cdp, page)).pathname === '/interview',
+			15_000,
+			300,
+		);
+		const reportLink = await pollUntil(
+			'completed state report link',
+			async () =>
+				await evaluate(
+					cdp,
+					page,
+					`document.querySelector('section:has(#interview-submitted-heading) a[href^="/reports/"]')?.getAttribute('href') ?? null`,
+				),
+		);
+		record(
+			'gate.signedout-returned-completed',
+			'PASS',
+			`signed in and returned to /interview; the completed state links to ${reportLink} (no fresh consent gate)`,
+		);
+		await screenshot(cdp, page, '45-gate-returned', artifactsDir);
+	} catch (error) {
+		await screenshot(cdp, page, '46-gate-failure', artifactsDir).catch(
+			() => {},
+		);
+		record(
+			'gate.signedout-returned-completed',
+			error.pending ? 'PENDING' : 'FAIL',
+			error.message,
+		);
+	} finally {
+		await page.close();
+		await cdp
+			.send('Target.disposeBrowserContext', {
+				browserContextId: gateContext,
+			})
+			.catch(() => {});
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Globals shared by phases
 // ---------------------------------------------------------------------------
@@ -2441,6 +2561,9 @@ async function main() {
 					.catch(() => {});
 			}
 		}
+
+		// Signed-out gate on the interview page itself (throwaway context).
+		await runSignedOutInterviewGateCheck(cdp, baseUrl, ARTIFACTS_DIR);
 
 		if (probe['/sign-in'] !== 404 && probe['/sign-in'] !== 0) {
 			await runSignInChecks(
