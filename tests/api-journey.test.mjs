@@ -361,25 +361,47 @@ function requestChunkedBytes(baseUrl, pathName, totalBytes, chunkSize) {
 	});
 }
 
-/** Local TCP addresses this pid is listening on, from `netstat -ano`. */
+/** Local TCP addresses this pid is listening on: `lsof` on macOS/Linux,
+ * `netstat -ano -p tcp` on Windows. */
 function listeningAddresses(pid) {
-	const out = execFileSync('netstat', ['-ano', '-p', 'tcp'], {
-		encoding: 'utf8',
-	});
+	const pidText = String(pid);
+	if (process.platform === 'win32') {
+		const out = execFileSync('netstat', ['-ano', '-p', 'tcp'], {
+			encoding: 'utf8',
+		});
+		const addresses = [];
+		for (const line of out.split(/\r?\n/)) {
+			const parts = line.trim().split(/\s+/);
+			if (
+				parts.length < 5
+				|| parts[0] !== 'TCP'
+				|| parts[parts.length - 1] !== pidText
+			) {
+				continue;
+			}
+			// Listener rows: LISTENING state and/or foreign address 0.0.0.0:0.
+			const isListener =
+				parts[3] === 'LISTENING' || parts[2] === '0.0.0.0:0';
+			if (isListener) {
+				addresses.push(parts[1]);
+			}
+		}
+		return addresses;
+	}
+	const out = execFileSync(
+		'lsof',
+		['-nP', '-a', '-iTCP', '-sTCP:LISTEN', '-p', pidText],
+		{ encoding: 'utf8' },
+	);
 	const addresses = [];
 	for (const line of out.split(/\r?\n/)) {
 		const parts = line.trim().split(/\s+/);
 		if (
-			parts.length < 5
-			|| parts[0] !== 'TCP'
-			|| parts[parts.length - 1] !== String(pid)
+			parts.length > 8
+			&& parts[1] === pidText
+			&& parts[parts.length - 1] === '(LISTEN)'
 		) {
-			continue;
-		}
-		// Listener rows: LISTENING state and/or foreign address 0.0.0.0:0.
-		const isListener = parts[3] === 'LISTENING' || parts[2] === '0.0.0.0:0';
-		if (isListener) {
-			addresses.push(parts[1]);
+			addresses.push(parts[parts.length - 2]);
 		}
 	}
 	return addresses;

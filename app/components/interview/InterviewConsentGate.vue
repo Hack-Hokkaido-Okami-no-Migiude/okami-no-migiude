@@ -62,8 +62,10 @@
 	import type { InterviewStrings } from '../../locales/interview.ts';
 	import { computed, reactive } from 'vue';
 
+	// Only the consent block is required so the gate can also be used by the
+	// voice page, whose dictionary carries its own consent copy.
 	const props = defineProps<{
-		strings: InterviewStrings;
+		strings: { consent: InterviewStrings['consent'] };
 		starting: boolean;
 	}>();
 

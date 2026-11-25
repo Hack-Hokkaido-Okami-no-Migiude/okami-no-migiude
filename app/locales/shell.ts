@@ -18,6 +18,7 @@ const shellJa = {
 		signIn: 'サインイン',
 		signOut: 'ログアウト',
 		interview: '面談を始める',
+		voice: '音声面談',
 		staff: '管理画面',
 	},
 	footerNote: '女将の右腕 — 北海道の中小事業者支援パイロット',
@@ -31,6 +32,7 @@ const shellJa = {
 		ctaSignIn: 'サインイン',
 		startOwnerTitle: '面談の準備ができています',
 		ctaStartOwner: '面談を始める',
+		ctaStartVoice: '音声面談を始める',
 		ctaStartOwnerHint: 'サインイン後に面談ページへ進みます。',
 		stepsTitle: '利用の流れ',
 		steps: [
@@ -133,6 +135,7 @@ const shellEn: ShellMessages = {
 		signIn: 'Sign in',
 		signOut: 'Sign out',
 		interview: 'Start interview',
+		voice: 'Voice chat',
 		staff: 'Staff console',
 	},
 	footerNote: 'Okami no Migiude — a municipal SMB support pilot for Hokkaido',
@@ -146,6 +149,7 @@ const shellEn: ShellMessages = {
 		ctaSignIn: 'Sign in',
 		startOwnerTitle: 'Ready to start your interview',
 		ctaStartOwner: 'Start the interview',
+		ctaStartVoice: 'Start voice chat',
 		ctaStartOwnerHint:
 			'You will continue on the interview page after signing in.',
 		stepsTitle: 'How it works',

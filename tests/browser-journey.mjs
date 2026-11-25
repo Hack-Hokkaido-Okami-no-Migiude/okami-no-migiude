@@ -469,6 +469,11 @@ class Cdp {
 function findBrowserExecutable() {
 	const candidates = [
 		process.env.BROWSER_JOURNEY_BROWSER,
+		// macOS
+		'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+		'/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+		'/Applications/Chromium.app/Contents/MacOS/Chromium',
+		// Windows
 		'C:/Program Files/Google/Chrome/Application/chrome.exe',
 		'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
 		`${process.env.LOCALAPPDATA ?? ''}/Google/Chrome/Application/chrome.exe`,
@@ -1849,6 +1854,43 @@ async function runReportUiChecks(
 	}
 }
 
+// Voice chat entry: /voice must exist and degrade to an honest unavailable
+// panel while the ELEVENLABS_* env is unset (this demo environment), and a
+// staff session must see the role guard instead of the owner flow.
+async function runVoicePageChecks(cdp, contextId, baseUrl, artifactsDir, role) {
+	const page = await openPage(cdp, contextId);
+	try {
+		await navigate(cdp, page, `${baseUrl}/voice`);
+		const text = await bodyText(cdp, page);
+		const expected =
+			role === 'staff' ?
+				/職員アカウントでは音声面談を開始できません|Staff accounts cannot start a voice chat/
+			:	/音声面談は現在利用できません|Voice chat is currently unavailable/;
+		record(
+			`voice.${role}-guard`,
+			expected.test(text) ? 'PASS' : 'FAIL',
+			expected.test(text) ?
+				`/voice shows the ${role} guard panel (voice env unset)`
+			:	`unexpected /voice content: ${text.slice(0, 160)}`,
+		);
+		await screenshot(cdp, page, `40-voice-${role}`, artifactsDir);
+		const errors = page.consoleErrors.filter(
+			(line) => !/favicon/i.test(line),
+		);
+		record(
+			'voice.no-console-errors',
+			errors.length === 0 ? 'PASS' : 'FAIL',
+			errors.length === 0 ?
+				`no page errors on /voice (${role})`
+			:	errors.slice(0, 3).join(' | '),
+		);
+	} catch (error) {
+		record(`voice.${role}-guard`, 'FAIL', error.message);
+	} finally {
+		await page.close();
+	}
+}
+
 // Staff queue + walls (staff context).
 async function runStaffChecks(
 	cdp,
@@ -2322,7 +2364,13 @@ async function main() {
 
 		// --- route probe: which agreed routes are implemented yet? ---
 		const probe = {};
-		for (const route of ['/signup', '/sign-in', '/interview', '/staff']) {
+		for (const route of [
+			'/signup',
+			'/sign-in',
+			'/interview',
+			'/staff',
+			'/voice',
+		]) {
 			probe[route] = await probeRoute(baseUrl, route);
 			if (probe[route] === 404 || probe[route] === 0) {
 				record(
@@ -2452,6 +2500,28 @@ async function main() {
 				seedReportIdA,
 				seedReportIdB,
 				ARTIFACTS_DIR,
+			);
+		}
+		if (probe['/voice'] !== 404 && probe['/voice'] !== 0) {
+			await runVoicePageChecks(
+				cdp,
+				contexts.owner,
+				baseUrl,
+				ARTIFACTS_DIR,
+				'owner',
+			);
+			await runVoicePageChecks(
+				cdp,
+				contexts.staff,
+				baseUrl,
+				ARTIFACTS_DIR,
+				'staff',
+			);
+		} else {
+			record(
+				'routes./voice',
+				'PENDING',
+				'HTTP 404 — voice page not in the tree yet',
 			);
 		}
 		await runWallAndPersistenceChecks(

@@ -18,6 +18,9 @@ import { generateReportContent } from './analyze';
 import { inTransaction } from './utils/db';
 import { sanitizeError } from './utils/errors';
 import { workerPollMs } from './utils/env';
+import { readVoiceConfig, voiceConfigured } from './voice/config';
+import { createVoiceProviders } from './voice/providers';
+import { processNextVoiceResearch } from './voice/jobs';
 
 const MAX_ATTEMPTS = 5;
 
@@ -29,24 +32,44 @@ export function startWorker(): void {
 		return;
 	}
 	global.__okamiWorkerStarted = true;
+	// Voice research awaits provider I/O, so the tick is async with a
+	// re-entrancy guard: a slow Dify/Linkup call never overlaps itself.
+	let running = false;
 	const timer = setInterval(() => {
-		try {
-			processDueWork();
-		} catch (error) {
-			console.error('[worker] tick failed:', error);
+		if (running) {
+			return;
 		}
+		running = true;
+		void processDueWork()
+			.catch((error) => {
+				console.error('[worker] tick failed:', error);
+			})
+			.finally(() => {
+				running = false;
+			});
 	}, workerPollMs());
 	timer.unref?.();
 }
 
-function processDueWork(): void {
+async function processDueWork(): Promise<void> {
 	for (let guard = 0; guard < 50; guard += 1) {
 		const didReport = processNextReport();
+		const didVoice = await processNextVoice();
 		const didMail = processQueuedMail();
-		if (!didReport && !didMail) {
+		if (!didReport && !didVoice && !didMail) {
 			return;
 		}
 	}
+}
+
+function processNextVoice(): Promise<boolean> {
+	if (!voiceConfigured()) {
+		return Promise.resolve(false);
+	}
+	return processNextVoiceResearch(
+		nowMs(),
+		createVoiceProviders(readVoiceConfig()),
+	);
 }
 
 function processNextReport(): boolean {

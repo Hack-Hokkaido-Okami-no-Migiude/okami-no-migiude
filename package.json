@@ -16,6 +16,7 @@
 		"esbuild@0.28.2": true
 	},
 	"dependencies": {
+		"@elevenlabs/client": "1.36.1",
 		"@nuxt/eslint": "^1.7.1",
 		"@nuxt/fonts": "^1.2.0",
 		"@nuxt/icon": "^2.0.0",

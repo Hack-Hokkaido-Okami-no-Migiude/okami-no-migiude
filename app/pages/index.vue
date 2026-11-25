@@ -48,6 +48,12 @@
 					>
 						{{ t.home.ctaStartOwner }}
 					</NuxtLink>
+					<NuxtLink
+						to="/voice"
+						class="button-secondary"
+					>
+						{{ t.home.ctaStartVoice }}
+					</NuxtLink>
 				</template>
 				<template v-else-if="user?.role === 'staff'">
 					<NuxtLink

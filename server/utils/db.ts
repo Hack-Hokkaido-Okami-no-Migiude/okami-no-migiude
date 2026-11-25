@@ -119,5 +119,21 @@ function initSchema(db: DatabaseSync): void {
 			UNIQUE (report_id, audience, recipient)
 		);
 		CREATE INDEX IF NOT EXISTS idx_mail_queued ON mail_outbox(status, next_attempt_at);
+		CREATE TABLE IF NOT EXISTS voice_sessions (
+			conversation_id TEXT PRIMARY KEY,
+			owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			consent_at TEXT NOT NULL,
+			report_language TEXT NOT NULL CHECK (report_language IN ('ja', 'en')),
+			business TEXT,
+			research_status TEXT NOT NULL DEFAULT 'idle'
+				CHECK (research_status IN ('idle', 'queued', 'submitting', 'polling', 'completed', 'failed')),
+			research_task_id TEXT,
+			research_deadline INTEGER,
+			research_poll_at INTEGER,
+			research_cases TEXT,
+			transcript TEXT,
+			created_at TEXT NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_voice_sessions_owner ON voice_sessions(owner_id, created_at);
 	`);
 }
