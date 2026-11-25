@@ -1,0 +1,111 @@
+// In-process background worker (approved override): a single periodic loop
+// that turns pending reports into ready reports (writing owner and staff
+// messages transactionally) and delivers due outbox mails. No separate jobs
+// table is needed — durable pending/queued state lives on the rows themselves,
+// so boot recovery is inherent: pending rows are simply picked up again.
+import { enqueueReportReadyMails, processQueuedMail } from './mail';
+import {
+	findOwnerProfileRow,
+	findPendingReportDue,
+	markReportFailed,
+	markReportGenerateRetry,
+} from './model/reports';
+
+import { nowIso, nowMs } from './utils/clock';
+import type { ReportRow } from './model/reports';
+import { findInterviewById } from './model/interviews';
+import { generateReportContent } from './analyze';
+import { inTransaction } from './utils/db';
+import { sanitizeError } from './utils/errors';
+import { workerPollMs } from './utils/env';
+
+const MAX_ATTEMPTS = 5;
+
+export function startWorker(): void {
+	const global = globalThis as typeof globalThis & {
+		__okamiWorkerStarted?: boolean;
+	};
+	if (global.__okamiWorkerStarted) {
+		return;
+	}
+	global.__okamiWorkerStarted = true;
+	const timer = setInterval(() => {
+		try {
+			processDueWork();
+		} catch (error) {
+			console.error('[worker] tick failed:', error);
+		}
+	}, workerPollMs());
+	timer.unref?.();
+}
+
+function processDueWork(): void {
+	for (let guard = 0; guard < 50; guard += 1) {
+		const didReport = processNextReport();
+		const didMail = processQueuedMail();
+		if (!didReport && !didMail) {
+			return;
+		}
+	}
+}
+
+function processNextReport(): boolean {
+	const report = findPendingReportDue(nowMs());
+	if (!report) {
+		return false;
+	}
+	try {
+		generateAndEnqueue(report);
+	} catch (error) {
+		handleGenerationFailure(report, error);
+	}
+	return true;
+}
+
+function generateAndEnqueue(report: ReportRow): void {
+	const interview = findInterviewById(report.interview_id);
+	if (!interview || !interview.transcript) {
+		markReportFailed(report.id, 'Interview transcript is missing');
+		return;
+	}
+	// Live mode has no verified adapter in this slice: fail honestly instead
+	// of faking an external call (§10). No network request is ever made.
+	if (interview.mode === 'live') {
+		markReportFailed(report.id, 'Live analysis is not configured');
+		return;
+	}
+	const profile = findOwnerProfileRow(report.owner_id);
+	const content = generateReportContent(
+		interview.transcript,
+		{
+			businessName: report.business_name,
+			businessType: profile?.business_type ?? 'other',
+			municipality: profile?.municipality ?? '',
+			locale: report.locale,
+		},
+		nowIso(),
+	);
+	inTransaction((db) => {
+		const changed = db
+			.prepare(
+				"UPDATE reports SET status = 'ready', content = ?, ready_at = ?, generate_attempts = generate_attempts + 1 WHERE id = ? AND status = 'pending'",
+			)
+			.run(content, nowIso(), report.id);
+		if (Number(changed.changes) > 0) {
+			enqueueReportReadyMails(db, report);
+		}
+	});
+}
+
+function handleGenerationFailure(report: ReportRow, error: unknown): void {
+	const attempts = report.generate_attempts + 1;
+	if (attempts >= MAX_ATTEMPTS) {
+		markReportFailed(report.id, sanitizeError(error));
+		return;
+	}
+	markReportGenerateRetry(
+		report.id,
+		attempts,
+		nowMs() + 2 ** attempts * 30_000,
+	);
+}

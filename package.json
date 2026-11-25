@@ -9,7 +9,7 @@
 		"generate": "nuxt generate",
 		"postinstall": "nuxt prepare",
 		"preview": "nuxt preview",
-		"start": "node --env-file-if-exists=.env .output/server/index.mjs"
+		"start": "node --env-file-if-exists=.env scripts/start.mjs"
 	},
 	"allowScripts": {
 		"@parcel/watcher@2.6.0": true,
