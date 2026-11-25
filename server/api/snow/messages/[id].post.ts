@@ -1,8 +1,10 @@
 // POST /api/snow/messages/:id — owner only, own messages only.
 //   save    — edit the text of a draft (drafts only)
 //   approve — the okami approves the (possibly edited) draft
-//   send    — send an approved message (never a draft): demo delivery to
-//             ${DATA_DIR}/guest-outbox, nothing leaves the machine
+//   send    — send an approved message (never a draft): by email through
+//             Resend when configured and the guest has an email address,
+//             otherwise to the demo outbox ${DATA_DIR}/guest-outbox
+//             (502 delivery_failed keeps it approved for a retry)
 //   discard — drop a draft or an approved message that was not sent
 import {
 	approveMessage,
@@ -55,7 +57,20 @@ export default defineApi(async (event) => {
 		}
 		ok = action === 'save' ? true : approveMessage(user.id, id, nowIso());
 	} else if (action === 'send') {
-		ok = sendMessage(user.id, id, nowIso());
+		const result = await sendMessage(
+			user.id,
+			id,
+			user.profile.businessName,
+			nowIso,
+		);
+		if (result === 'delivery_failed') {
+			throw apiError(
+				502,
+				'delivery_failed',
+				'The email could not be sent; the message is still approved',
+			);
+		}
+		ok = result === 'sent';
 	} else {
 		ok = discardMessage(user.id, id);
 	}
