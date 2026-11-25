@@ -98,3 +98,43 @@ export function secretMatches(value: string, expected: string): boolean {
 	const wanted = Buffer.from(hash(expected), 'hex');
 	return actual.length === wanted.length && timingSafeEqual(actual, wanted);
 }
+
+/**
+ * The server-issued interview id the page passed to the widget as a dynamic
+ * variable (`interview_id`), read back out of the post-call webhook payload.
+ * The webhook is HMAC-verified server-to-server, so the id is trusted as a
+ * lookup key; malformed payloads simply match nothing. Unknown keys and
+ * value types are ignored (built-in `system__` variables share the object).
+ */
+export function readWebhookInterviewId(
+	data: Record<string, unknown>,
+): string {
+	const initiation = data.conversation_initiation_client_data;
+	if (
+		!initiation
+		|| typeof initiation !== 'object'
+		|| Array.isArray(initiation)
+	) {
+		return '';
+	}
+	const variables = (
+		initiation as { dynamic_variables?: unknown }
+	).dynamic_variables;
+	if (
+		!variables
+		|| typeof variables !== 'object'
+		|| Array.isArray(variables)
+	) {
+		return '';
+	}
+	const value = (variables as Record<string, unknown>)['interview_id'];
+	if (
+		typeof value !== 'string'
+		|| !value.trim()
+		|| value.length > 64
+		|| /[\r\n]/.test(value)
+	) {
+		return '';
+	}
+	return value.trim();
+}

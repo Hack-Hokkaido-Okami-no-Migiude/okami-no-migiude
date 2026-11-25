@@ -3,7 +3,9 @@
 // mirrors voice_sessions: durable state on the row itself, so boot recovery
 // is inherent and no separate jobs table is needed.
 import type { InterviewCurrent, InterviewMode } from '#shared/types/domain';
+import type { VoiceResearchCase } from '#shared/types/voice';
 import type { VoiceBusiness } from '../voice/providers';
+import { parseVoiceCases } from '../voice/model';
 import { getDb, inTransaction } from '../utils/db';
 
 export type InterviewResearchStatus =
@@ -101,14 +103,64 @@ export function insertInterview(
 	);
 }
 
+/**
+ * Live start: snapshots the profile-derived business intake and the report
+ * language onto the row, so the research pass and the Dify assessment run
+ * from the same intake the agent saw even if the profile changes later.
+ */
+export function insertLiveInterview(
+	db: import('node:sqlite').DatabaseSync,
+	input: {
+		id: string;
+		ownerId: string;
+		startedAt: string;
+		deadlineAt: string;
+		business: VoiceBusiness;
+		reportLanguage: string;
+	},
+): void {
+	db.prepare(
+		`INSERT INTO interviews
+			(id, owner_id, mode, status, consent_at, started_at, deadline_at, submitted_at,
+			transcript, business_json, report_language, created_at)
+		 VALUES (?, ?, 'live', 'active', ?, ?, ?, NULL, NULL, ?, ?, ?)`,
+	).run(
+		input.id,
+		input.ownerId,
+		input.startedAt,
+		input.startedAt,
+		input.deadlineAt,
+		JSON.stringify(input.business),
+		input.reportLanguage,
+		input.startedAt,
+	);
+}
+
 /** Wire shape for InterviewCurrent (includes mode — approved override). */
 export function toInterviewCurrent(row: InterviewRow): InterviewCurrent {
-	return {
+	const current: InterviewCurrent = {
 		id: row.id,
 		status: row.status,
 		deadlineAt: row.deadline_at,
 		mode: row.mode,
 	};
+	if (row.mode === 'live') {
+		current.research = {
+			status: row.research_status,
+			started: row.research_task_id !== null,
+			cases: parseInterviewCases(row.research_cases),
+		};
+		current.assessment = {
+			status: row.assessment_status,
+			reportId: row.assessment_report_id,
+		};
+	}
+	return current;
+}
+
+/** The stored research cases JSON, safely re-parsed (shape-checked upstream). */
+function parseInterviewCases(raw: string | null): VoiceResearchCase[] {
+	return parseVoiceCases(raw) as VoiceResearchCase[];
 }
 
 // ---------------------------------------------------------------------------

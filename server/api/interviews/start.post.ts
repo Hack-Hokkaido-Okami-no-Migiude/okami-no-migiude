@@ -1,14 +1,23 @@
 // POST /api/interviews/start — consent gate, mode gating, one interview.
 // Approved override: one submitted interview/report per owner, so starting
-// after submission is rejected (409 already_submitted).
+// after submission is rejected (409 already_submitted). Live mode starts the
+// embedded-agent interview: it snapshots the profile-derived business intake
+// and report language, supersedes pending research of abandoned live
+// interviews and queues the profile-intake research pass when the research
+// stack is configured (an unconfigured stack degrades to an honest idle
+// state, not an error).
 import { defineApi, parseJsonBody, sendJson } from '../../utils/api';
 import {
 	findActiveUnexpiredInterview,
 	findCurrentSubmittedInterview,
+	findInterviewById,
 	insertInterview,
+	insertLiveInterview,
+	queueInterviewResearch,
+	supersedePendingInterviewResearch,
 	toInterviewCurrent,
 } from '../../model/interviews';
-import { isoPlusMs, nowIso } from '../../utils/clock';
+import { isoPlusMs, nowIso, nowMs } from '../../utils/clock';
 import { apiError } from '../../utils/errors';
 import { assertSameOrigin } from '../../utils/origin';
 import { inTransaction } from '../../utils/db';
@@ -16,6 +25,11 @@ import { inTransaction } from '../../utils/db';
 import { newId } from '../../utils/ids';
 import { requireOneOf } from '../../utils/validate';
 import { requireOwner } from '../../utils/session';
+import {
+	agentConfigured,
+	voiceConfigured,
+} from '../../voice/config';
+import { VOICE_RESEARCH_TIMEOUT_MS } from '../../voice/jobs';
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -31,7 +45,7 @@ export default defineApi(async (event) => {
 		);
 	}
 	const mode = requireOneOf(body, 'mode', ['demo', 'live']);
-	if (mode === 'live') {
+	if (mode === 'live' && !agentConfigured()) {
 		throw apiError(409, 'mode_unavailable', 'Live mode is not configured');
 	}
 	if (findCurrentSubmittedInterview(user.id)) {
@@ -51,27 +65,50 @@ export default defineApi(async (event) => {
 	const id = newId();
 	const startedAt = nowIso();
 	const deadlineAt = isoPlusMs(startedAt, HOUR_MS);
-	inTransaction((db) => {
-		insertInterview(db, {
-			id,
-			ownerId: user.id,
-			mode,
-			startedAt,
-			deadlineAt,
+	if (mode === 'live') {
+		const businessName = user.profile.businessName.trim();
+		const municipality = user.profile.municipality.trim();
+		if (!businessName || !municipality) {
+			throw apiError(
+				400,
+				'validation',
+				'Owner profile is missing business details',
+			);
+		}
+		const business = { businessName, location: municipality };
+		inTransaction((db) => {
+			insertLiveInterview(db, {
+				id,
+				ownerId: user.id,
+				startedAt,
+				deadlineAt,
+				business,
+				reportLanguage: user.profile.locale,
+			});
+			// Abandoned live interviews must not keep polling research forever.
+			supersedePendingInterviewResearch(db, user.id, id);
 		});
-	});
-	return sendJson(event, 201, {
-		interview: toInterviewCurrent({
-			id,
-			owner_id: user.id,
-			mode,
-			status: 'active',
-			consent_at: startedAt,
-			started_at: startedAt,
-			deadline_at: deadlineAt,
-			submitted_at: null,
-			transcript: null,
-			created_at: startedAt,
-		}),
-	});
+		if (voiceConfigured()) {
+			queueInterviewResearch(
+				id,
+				business,
+				nowMs() + VOICE_RESEARCH_TIMEOUT_MS,
+			);
+		}
+	} else {
+		inTransaction((db) => {
+			insertInterview(db, {
+				id,
+				ownerId: user.id,
+				mode,
+				startedAt,
+				deadlineAt,
+			});
+		});
+	}
+	const row = findInterviewById(id);
+	if (!row) {
+		throw apiError(500, 'server_error', 'Interview could not be started');
+	}
+	return sendJson(event, 201, { interview: toInterviewCurrent(row) });
 });

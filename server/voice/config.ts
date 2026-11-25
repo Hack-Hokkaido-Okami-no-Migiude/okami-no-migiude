@@ -97,3 +97,18 @@ export function difyConfigured(): boolean {
 	const config = readVoiceConfig();
 	return config.difyApiKey.length > 0 && config.difyApiBaseUrl.length > 0;
 }
+
+/**
+ * The embedded-agent interview surface: the agent id drives the widget and
+ * the webhook secret verifies the post-call transcript. Without both there
+ * is no way to record a conversation, so live mode is honestly unavailable —
+ * the research/report stack (Linkup, Dify) is gated separately and degrades
+ * to its own honest states.
+ */
+export function agentConfigured(): boolean {
+	const config = readVoiceConfig();
+	return (
+		config.elevenLabsAgentId.length > 0
+		&& config.elevenLabsWebhookSecret.length > 0
+	);
+}

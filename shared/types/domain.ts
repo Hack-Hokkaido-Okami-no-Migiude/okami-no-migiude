@@ -2,6 +2,11 @@
 // top of docs/mvp-contract.md applied: 11-value BusinessType, SessionUser as a
 // discriminated union by role, and `mode` exposed on InterviewCurrent).
 // Type-only module: no runtime exports, safe to import from app and server.
+import type {
+	VoiceAssessmentStatus,
+	VoiceResearchCase,
+	VoiceResearchStatus,
+} from './voice';
 
 export type Locale = 'ja' | 'en';
 
@@ -47,12 +52,29 @@ export type InterviewMode = 'demo' | 'live';
 
 export type InterviewStatus = 'active' | 'submitted';
 
+/** Live-only research surface on InterviewCurrent (mode 'live'). */
+export type InterviewResearchSurface = {
+	status: VoiceResearchStatus;
+	started: boolean;
+	cases: VoiceResearchCase[] | null;
+};
+
+/** Live-only Dify-assessment surface on InterviewCurrent (mode 'live'). */
+export type InterviewAssessmentSurface = {
+	status: VoiceAssessmentStatus;
+	/** The reports row created when the Dify assessment succeeded. */
+	reportId: string | null;
+};
+
 /** Shape exposed by GET /api/interviews/current and start/complete. */
 export type InterviewCurrent = {
 	id: string;
 	status: InterviewStatus;
 	deadlineAt: string; // ISO 8601 UTC
 	mode: InterviewMode;
+	/** Present on live rows only; demo rows omit the live surfaces. */
+	research?: InterviewResearchSurface;
+	assessment?: InterviewAssessmentSurface;
 };
 
 /** Full interview row (server-side; never returned whole by the API). */
