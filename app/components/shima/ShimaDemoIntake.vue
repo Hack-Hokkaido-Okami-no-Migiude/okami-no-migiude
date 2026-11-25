@@ -1,5 +1,6 @@
 <script setup lang="ts">
 	import type { Answer } from '#shared/p0/types';
+	import ShimaRoleplayAudio from '~/components/shima/roleplay/ShimaRoleplayAudio.vue';
 	import { shimaDemoQuestion } from '~/composables/useShimaDemo';
 
 	const props = defineProps<{
@@ -22,8 +23,9 @@
 			架空の宿では、清掃予定を渡した後に部屋が変わると、電話で伝えて予定表を書き直します。
 		</p>
 		<p class="quiet">
-			音声の代わりに質問を文字で表示します。マイクや外部AIは使いません。
+			質問は文字でも表示します。録音は事前録音の架空ボイスで、マイクも外部AIも使いません。
 		</p>
+		<ShimaRoleplayAudio />
 		<button
 			v-if="!props.ready"
 			class="button primary"

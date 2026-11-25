@@ -15,6 +15,10 @@ export default defineNuxtConfig({
 				target: 'esnext',
 			},
 		},
+		// Resolved against Nitro's srcDir (<repo>/server): installs the guarded
+		// pre-H3 request boundary so no route rule, static asset or SSR handler
+		// runs before it. server/middleware only provides defense in depth.
+		plugins: ['./pilot/runtime'],
 	},
 	// https://fonts.nuxt.com/get-started/configuration
 	fonts: {
