@@ -24,10 +24,16 @@
 						</NuxtLink>
 					</div>
 				</div>
-				<div
-					class="hero-art"
-					aria-hidden="false"
-				>
+				<picture class="hero-art">
+					<source
+						media="(prefers-reduced-motion: no-preference)"
+						type="image/webp"
+						srcset="/branding/shima-enaga-idle.webp"
+					/>
+					<source
+						type="image/webp"
+						srcset="/branding/shima-enaga-rest.webp"
+					/>
 					<img
 						src="/branding/shima-enaga.svg"
 						:alt="t.home.mascotAlt"
@@ -35,7 +41,7 @@
 						width="280"
 						height="280"
 					/>
-				</div>
+				</picture>
 			</div>
 		</section>
 		<section class="page-shell home-start">

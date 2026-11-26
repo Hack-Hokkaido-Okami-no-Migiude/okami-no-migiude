@@ -12,7 +12,7 @@
 					class="brand"
 				>
 					<img
-						src="/branding/shima-enaga.svg"
+						src="/branding/shima-enaga-rest.webp"
 						alt=""
 						class="brand-mark"
 						width="44"

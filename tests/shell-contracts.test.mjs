@@ -428,7 +428,15 @@ test('index.vue is the localized owner entry with prominent CTAs', () => {
 		.map((node) => `${node.tag} :: ${propText(node)}`)
 		.join('\n');
 
-	assert.match(joined, /shima-enaga\.svg/, 'mascot asset is used');
+	const mascotSources = nodes
+		.filter((node) => node.tag === 'source')
+		.map(propText);
+	assert.match(
+		mascotSources[0],
+		/media=\(prefers-reduced-motion: no-preference\).*srcset=\/branding\/shima-enaga-idle\.webp/,
+	);
+	assert.match(mascotSources[1], /srcset=\/branding\/shima-enaga-rest\.webp/);
+	assert.match(joined, /shima-enaga\.svg/, 'mascot has a fallback image');
 	assert.match(joined, /to=\/signup/, 'prominent signup CTA');
 	assert.match(joined, /to=\/sign-in/, 'prominent sign-in CTA');
 	assert.match(joined, /\/interview/, 'owner start path present');

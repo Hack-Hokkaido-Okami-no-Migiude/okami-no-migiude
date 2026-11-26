@@ -217,8 +217,8 @@ test(
 			assert.match(home.text, /eyebrow/, 'public .eyebrow primitive');
 			assert.match(
 				home.text,
-				/\/branding\/shima-enaga\.svg/,
-				'mascot image',
+				/\/branding\/shima-enaga-idle\.webp/,
+				'homepage mascot animation',
 			);
 			assert.match(home.text, /href="\/signup"/, 'prominent signup link');
 			assert.match(
@@ -325,6 +325,24 @@ test(
 			// Mascot + favicon assets
 			// ------------------------------------------------------------------
 			console.log('## step: branding assets');
+			for (const filename of [
+				'shima-enaga-idle.webp',
+				'shima-enaga-rest.webp',
+			]) {
+				const asset = await request(
+					baseUrl,
+					'GET',
+					`/branding/${filename}`,
+					{
+						origin: null,
+					},
+				);
+				expectStatus(filename, asset, 200);
+				assert.match(
+					asset.headers.get('content-type') ?? '',
+					/image\/webp/,
+				);
+			}
 			const mascot = await request(
 				baseUrl,
 				'GET',
