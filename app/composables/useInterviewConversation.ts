@@ -86,7 +86,9 @@ export function useInterviewConversation() {
 
 	function addTurn(turn: { role?: unknown; message?: unknown }) {
 		if (
-			(turn.role !== 'agent' && turn.role !== 'user')
+			turn === null
+			|| typeof turn !== 'object'
+			|| (turn.role !== 'agent' && turn.role !== 'user')
 			|| typeof turn.message !== 'string'
 			|| !turn.message.trim()
 		) {
