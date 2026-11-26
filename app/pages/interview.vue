@@ -477,7 +477,6 @@
 			}
 			void chat.start({
 				conversationToken: grant.conversationToken,
-				interviewId: flow.interview.value?.id ?? '',
 				language: locale.value,
 				businessName: profileValue('businessName'),
 				location: profileValue('municipality'),
