@@ -96,7 +96,6 @@
 					<p class="step-body">{{ step.body }}</p>
 				</li>
 			</ol>
-			<p class="notice notice--info">{{ t.home.demoNote }}</p>
 		</section>
 	</div>
 </template>

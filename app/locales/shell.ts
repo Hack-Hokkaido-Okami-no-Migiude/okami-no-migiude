@@ -21,8 +21,6 @@ const shellJa = {
 		staff: '管理画面',
 	},
 	footerNote: '女将の右腕 — 北海道の中小事業者支援パイロット',
-	footerDemo:
-		'これはデモ環境です。面談はサンプル（フィクション）、レポートはルールベースの自動下書きです。',
 	home: {
 		eyebrow: '北海道の中小事業者のみなさまへ',
 		title: '経営の悩みを、\n話すだけで形に。',
@@ -48,8 +46,6 @@ const shellJa = {
 				body: '内容から経営レポートを作成し、完成したらメールでお知らせします。相談の申込もワンクリックです。',
 			},
 		],
-		demoNote:
-			'現在ご利用いただける面談は「サンプル面談（フィクション）」です。登場人物とやり取りは架空のものです。',
 		mascotAlt: 'シマエナガのマスコットキャラクター',
 	},
 	signup: {
@@ -115,8 +111,6 @@ const shellEn: ShellMessages = {
 		staff: 'Staff console',
 	},
 	footerNote: 'Okami no Migiude — a municipal SMB support pilot for Hokkaido',
-	footerDemo:
-		'This is a demo environment. Interviews are a sample (fictional) and reports are a rule-based automated draft.',
 	home: {
 		eyebrow: 'For small and mid-sized businesses in Hokkaido',
 		title: 'Talk it through.\nWe turn it into a plan.',
@@ -143,8 +137,6 @@ const shellEn: ShellMessages = {
 				body: 'We generate a management report and notify you by email when it is ready. Requesting a consultation takes one click.',
 			},
 		],
-		demoNote:
-			'The interview currently offered is a "Sample interview (fictional)". The persona and dialogue are fictional.',
 		mascotAlt: 'Shima Enaga mascot',
 	},
 	signup: {

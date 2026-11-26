@@ -123,10 +123,6 @@ test('shell dictionaries exist with full ja/en parity', async () => {
 		'exactly ja and en',
 	);
 	assertSameShape(shellMessages.ja, shellMessages.en, 'shellMessages');
-
-	// The demo label wording from contract §11 stays visible in shell copy.
-	assert.match(shellMessages.ja.home.demoNote, /サンプル|フィクション/);
-	assert.match(shellMessages.en.home.demoNote, /fictional|demo/i);
 });
 
 // ---------------------------------------------------------------------------

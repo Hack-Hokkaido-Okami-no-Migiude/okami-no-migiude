@@ -101,7 +101,6 @@
 		<footer class="site-footer">
 			<div class="page-shell">
 				<p class="footer-note">{{ t.footerNote }}</p>
-				<p class="footer-demo">{{ t.footerDemo }}</p>
 			</div>
 		</footer>
 	</div>
