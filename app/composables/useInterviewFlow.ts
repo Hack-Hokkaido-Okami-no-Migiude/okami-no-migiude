@@ -101,7 +101,6 @@ export type InterviewFlowController = {
 	notifyCallEnded(): void;
 	/** One current() poll; network blips are swallowed, never fatal. */
 	refresh(): Promise<void>;
-	restart(): Promise<void>;
 };
 
 export type InterviewFlowDependencies = {
@@ -300,7 +299,7 @@ export function createInterviewFlow(
 			return;
 		}
 		// The grant is consumed once the page started (or failed to start)
-		// the conversation; a restart mints a fresh one.
+		// the conversation. Status checks do not mint another grant.
 		conversation.value = null;
 		phase.value = 'ended';
 	}
@@ -326,13 +325,6 @@ export function createInterviewFlow(
 		}
 	}
 
-	async function restart() {
-		if (phase.value !== 'ended' && phase.value !== 'unavailable') {
-			return;
-		}
-		await init();
-	}
-
 	return {
 		phase,
 		interview,
@@ -350,6 +342,5 @@ export function createInterviewFlow(
 		start,
 		notifyCallEnded,
 		refresh,
-		restart,
 	};
 }

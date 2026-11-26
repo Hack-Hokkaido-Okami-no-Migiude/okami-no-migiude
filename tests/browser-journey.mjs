@@ -1709,7 +1709,7 @@ async function runInterviewUiChecks(cdp, contextId, baseUrl, artifactsDir) {
 // stub, and the page's end action ends the conversation early. The
 // headless run has no microphone, so the realtime audio itself stays
 // Unverified — these checks assert the consent-before-mint order, the mint
-// wiring and the flow phases only.
+// wiring, flow phases and read-only status refresh.
 async function runInterviewAgentChecks(
 	cdp,
 	baseUrl,
@@ -1841,6 +1841,11 @@ async function runInterviewAgentChecks(
 			:	`mint calls ${JSON.stringify(calls.map((entry) => entry.status))}, token stub issued ${issued.tokensIssued} for ${JSON.stringify(issued.agentIds)}`,
 		);
 		await screenshot(cdp, page, '34-interview-live', artifactsDir);
+		const isStatusRead = (entry) =>
+			entry.method === 'GET'
+			&& entry.url.endsWith('/api/interviews/current')
+			&& entry.status === 200;
+		const beforeEnd = page.netLog.length;
 		await click('.interview-page__actions button.button-primary');
 		await pollUntil(
 			'interview ended',
@@ -1853,6 +1858,46 @@ async function runInterviewAgentChecks(
 			mintsAfterEnd === 1 ?
 				"the page's end action ends the conversation early (endSession on the minted session); ending mints no new conversation"
 			:	`ending produced ${mintsAfterEnd} mint call(s) (exactly the one post-consent mint is expected)`,
+		);
+
+		// Ending triggers an immediate background poll. Let it complete, then
+		// require the click's GET before the next scheduled poll (2.5 s).
+		await pollUntil('immediate ended status poll', () =>
+			page.netLog.slice(beforeEnd).some(isStatusRead),
+		);
+		const startAndMintCount = () =>
+			[...page.netLog, ...page.net.values()].filter(
+				(entry) =>
+					entry.method === 'POST'
+					&& (entry.url.endsWith('/api/interviews/start')
+						|| entry.url.endsWith('/api/voice/sessions')),
+			).length;
+		const writesBeforeRefresh = startAndMintCount();
+		const tokensBeforeRefresh = tokenStub.state.tokensIssued;
+		const beforeRefresh = page.netLog.length;
+		await click(
+			'[data-interview-state="ended"] .interview-page__actions button.button-secondary',
+		);
+		const refreshed = await pollUntil(
+			'Refresh status GET',
+			() => page.netLog.slice(beforeRefresh).some(isStatusRead),
+			1_500,
+			50,
+		).catch(() => false);
+		const refreshedState = await state();
+		const newWrites = startAndMintCount() - writesBeforeRefresh;
+		const newTokens = tokenStub.state.tokensIssued - tokensBeforeRefresh;
+		const refreshOk =
+			refreshed
+			&& refreshedState === 'ended'
+			&& newWrites === 0
+			&& newTokens === 0;
+		record(
+			'interview.refresh-status',
+			refreshOk ? 'PASS' : 'FAIL',
+			refreshOk ?
+				'Refresh status read GET /api/interviews/current, stayed ended, and did not start or mint a conversation'
+			:	`status GET returned 200: ${refreshed}; phase: ${refreshedState}; new start/mint POSTs: ${newWrites}; new tokens: ${newTokens}`,
 		);
 		await screenshot(cdp, page, '35-interview-ended', artifactsDir);
 		// The headless run has no microphone, so the SDK start fails with the
@@ -2898,6 +2943,7 @@ async function main() {
 				'interview.agent-start',
 				'interview.token-mint',
 				'interview.end-early',
+				'interview.refresh-status',
 				'interview.no-console-errors',
 			]) {
 				record(

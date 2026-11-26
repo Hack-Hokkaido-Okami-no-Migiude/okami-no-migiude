@@ -50,11 +50,13 @@ const AGENT_UNAVAILABLE = {
 
 /** A scripted InterviewClient double: each method maps a key to a value. */
 function fakeClient({ availability, current, start, mint, currentQueue = [] }) {
+	let availabilityCalls = 0;
 	let currentCalls = 0;
-	let firstCurrent = true;
+	let startCalls = 0;
 	let mintCalls = 0;
 	return {
 		async availability() {
+			availabilityCalls += 1;
 			if (availability instanceof ApiFailure) {
 				throw availability;
 			}
@@ -63,22 +65,18 @@ function fakeClient({ availability, current, start, mint, currentQueue = [] }) {
 		async current() {
 			// The first call answers with `current`; later calls consume the
 			// scripted queue (used to step through poll responses).
-			if (!firstCurrent && currentQueue.length > 0) {
-				const next = currentQueue.shift();
-				if (next instanceof ApiFailure) {
-					throw next;
-				}
-				currentCalls += 1;
-				return next;
-			}
-			firstCurrent = false;
-			if (current instanceof ApiFailure) {
-				throw current;
-			}
 			currentCalls += 1;
-			return current ?? { interview: null, reportId: null };
+			const result =
+				currentCalls > 1 && currentQueue.length > 0 ?
+					currentQueue.shift()
+				:	current;
+			if (result instanceof ApiFailure) {
+				throw result;
+			}
+			return result ?? { interview: null, reportId: null };
 		},
 		async start() {
+			startCalls += 1;
 			if (start instanceof ApiFailure) {
 				throw start;
 			}
@@ -99,7 +97,9 @@ function fakeClient({ availability, current, start, mint, currentQueue = [] }) {
 				mint ?? { conversationId: 'conv-1', conversationToken: 'tok-1' }
 			);
 		},
+		availabilityCallCount: () => availabilityCalls,
 		currentCallCount: () => currentCalls,
+		startCallCount: () => startCalls,
 		mintCallCount: () => mintCalls,
 	};
 }
@@ -185,24 +185,9 @@ test('the conversation is never minted or started before the consent gate comple
 });
 
 test('a failed mint leaves the live view with the error and no grant', async () => {
-	// The first mint conflicts; the retry after ending succeeds.
-	const mints = [
-		new ApiFailure(409, 'no_active_interview'),
-		{ conversationId: 'conv-1', conversationToken: 'tok-1' },
-	];
 	const client = fakeClient({
-		current: { interview: null, reportId: null },
 		currentQueue: [{ interview: LIVE_INTERVIEW, reportId: null }],
-		mint: async () => {
-			const next = mints.shift() ?? {
-				conversationId: 'conv-1',
-				conversationToken: 'tok-1',
-			};
-			if (next instanceof ApiFailure) {
-				throw next;
-			}
-			return next;
-		},
+		mint: new ApiFailure(409, 'no_active_interview'),
 	});
 	const flow = createInterviewFlow({ client });
 	await flow.notifySession(OWNER);
@@ -216,17 +201,15 @@ test('a failed mint leaves the live view with the error and no grant', async () 
 	assert.equal(flow.error.value, 'internal');
 	assert.equal(client.mintCallCount(), 1);
 
-	// Ending and re-entering mints a fresh conversation.
+	// Checking status after leaving the call view does not retry the mint.
 	flow.notifyCallEnded();
+	await flow.refresh();
 	assert.equal(flow.phase.value, 'ended');
-	await flow.restart();
-	assert.equal(flow.phase.value, 'live');
-	assert.equal(client.mintCallCount(), 2);
-	assert.equal(flow.conversation.value?.conversationToken, 'tok-1');
-	assert.equal(flow.error.value, null);
+	assert.equal(flow.conversation.value, null);
+	assert.equal(client.mintCallCount(), 1);
 });
 
-test('a failed mint is not sticky once a later mint succeeds', async () => {
+test('a separate visit can resume an active interview after a failed mint', async () => {
 	let mints = 0;
 	const client = fakeClient({
 		current: { interview: LIVE_INTERVIEW, reportId: null },
@@ -245,10 +228,12 @@ test('a failed mint is not sticky once a later mint succeeds', async () => {
 	assert.equal(flow.phase.value, 'live');
 	assert.equal(flow.error.value, 'internal');
 	flow.notifyCallEnded();
-	await flow.restart();
-	assert.equal(flow.phase.value, 'live');
-	assert.equal(flow.error.value, null);
-	assert.equal(flow.conversation.value?.conversationId, 'conv-2');
+	const revisitedFlow = createInterviewFlow({ client });
+	await revisitedFlow.notifySession(OWNER);
+	assert.equal(revisitedFlow.phase.value, 'live');
+	assert.equal(revisitedFlow.interview.value?.id, LIVE_INTERVIEW.id);
+	assert.equal(revisitedFlow.error.value, null);
+	assert.equal(revisitedFlow.conversation.value?.conversationId, 'conv-2');
 });
 
 test('mode_unavailable at start falls back to the honest unavailable state', async () => {
@@ -355,9 +340,16 @@ test('refresh swallows network blips instead of dropping the call view', async (
 	assert.equal(flow.error.value, null);
 });
 
-test('notifyCallEnded moves the live view into the monitoring state', async () => {
+test('ended status refresh waits for submission without starting another call', async () => {
+	const activeStatus = { interview: LIVE_INTERVIEW, reportId: null };
 	const client = fakeClient({
-		current: { interview: LIVE_INTERVIEW, reportId: null },
+		current: activeStatus,
+		currentQueue: [
+			activeStatus,
+			new ApiFailure(0, 'network'),
+			activeStatus,
+			{ interview: SUBMITTED_LIVE, reportId: 'report-1' },
+		],
 	});
 	const flow = createInterviewFlow({ client });
 	await flow.notifySession(OWNER);
@@ -367,9 +359,28 @@ test('notifyCallEnded moves the live view into the monitoring state', async () =
 	assert.equal(flow.phase.value, 'ended');
 	assert.equal(flow.conversation.value, null);
 
-	// Ending twice is a no-op, and the ended view can re-probe.
+	// Ending twice is a no-op.
 	flow.notifyCallEnded();
 	assert.equal(flow.phase.value, 'ended');
-	await flow.restart();
-	assert.equal(flow.phase.value, 'live');
+
+	for (const response of ['active', 'network failure', 'active again']) {
+		await flow.refresh();
+		assert.equal(flow.phase.value, 'ended', response);
+		assert.equal(flow.interview.value?.id, LIVE_INTERVIEW.id, response);
+		assert.equal(flow.interview.value?.status, 'active', response);
+		assert.equal(flow.error.value, null, response);
+		assert.equal(flow.reportId.value, null, response);
+		assert.equal(flow.conversation.value, null, response);
+		assert.equal(client.mintCallCount(), 1, response);
+	}
+
+	await flow.refresh();
+	assert.equal(flow.phase.value, 'submitted');
+	assert.equal(flow.reportId.value, 'report-1');
+	assert.equal(flow.assessment.value?.reportId, 'report-1');
+	assert.equal(flow.conversation.value, null);
+	assert.equal(client.currentCallCount(), 5);
+	assert.equal(client.availabilityCallCount(), 1);
+	assert.equal(client.startCallCount(), 0);
+	assert.equal(client.mintCallCount(), 1);
 });

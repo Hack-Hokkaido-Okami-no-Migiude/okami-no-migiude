@@ -251,7 +251,7 @@
 							<button
 								class="button-secondary"
 								type="button"
-								@click="onRestart"
+								@click="flow.refresh()"
 							>
 								{{ strings.live.checkAgain }}
 							</button>
@@ -607,12 +607,6 @@
 		await chat.end();
 		flow.notifyCallEnded();
 		ending.value = false;
-	}
-
-	async function onRestart() {
-		resumed.value = true;
-		chat.clearFailure();
-		await flow.restart();
 	}
 
 	async function onRetry() {
