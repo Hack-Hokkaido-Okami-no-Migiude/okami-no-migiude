@@ -92,24 +92,28 @@ export function buildSyncQueries(db: Db): Query[] {
 		});
 	}
 
-	// Scripted interviews: only once submitted, so the transcript is final.
+	// Interviews: only once submitted, so the transcript is final. 'demo' is
+	// the scripted interview; 'live' is the AI voice agent, which also
+	// carries the research cases found for the owner.
 	const interviews = db
 		.prepare(
-			`SELECT id, owner_id, consent_at, started_at, submitted_at, transcript
+			`SELECT id, owner_id, mode, consent_at, started_at, submitted_at, transcript,
+			        research_cases
 			 FROM interviews WHERE status = 'submitted'`,
 		)
 		.all() as Record<string, string | null>[];
 	for (const i of interviews) {
+		const live = i.mode === 'live';
 		queries.push(
 			interviewUpsert({
 				appRef: i.id as string,
 				ownerId: i.owner_id as string,
-				mode: 'script',
+				mode: live ? 'voice' : 'script',
 				consentAt: i.consent_at as string,
 				startedAt: i.started_at as string,
 				submittedAt: i.submitted_at,
 				transcript: i.transcript,
-				researchCases: null,
+				researchCases: live ? i.research_cases : null,
 				retentionDays,
 				synthetic,
 			}),
