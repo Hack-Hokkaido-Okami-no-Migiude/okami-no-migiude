@@ -348,6 +348,29 @@ test(
 				403,
 			);
 
+			// The area is found however the owner typed the place.
+			for (const [i, typed] of [
+				'Sapporo',
+				'札幌市南区',
+				'定山渓温泉',
+				'Jozankei',
+			].entries()) {
+				const owner = await signup(
+					base,
+					`area-${i}@example.test`,
+					typed,
+				);
+				const view = await request(base, 'GET', '/api/snow', {
+					jar: owner,
+					origin: null,
+				});
+				assert.equal(
+					view.json.area?.nameJa,
+					'札幌市',
+					`area for "${typed}"`,
+				);
+			}
+
 			// Cross-origin POSTs are refused.
 			const csrf = await request(
 				base,

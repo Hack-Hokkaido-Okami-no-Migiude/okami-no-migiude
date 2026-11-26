@@ -157,7 +157,79 @@ function normalize(name: string): string {
 		.normalize('NFKC')
 		.toLowerCase()
 		.replace(/\s+/g, '')
-		.replace(/^北海道/, '');
+		.replace(/^北海道/, '')
+		.replace(/^.{2,3}[都府県](?=.{2,})/, '');
+}
+
+/** Romanized names: "Sapporo", "Sapporo-shi", "Sapporo City, Hokkaido". */
+function romanBase(name: string): string {
+	return name
+		.normalize('NFKC')
+		.toLowerCase()
+		.replace(/[^a-z]/g, ' ')
+		.replace(
+			/\b(city|town|village|shi|cho|machi|mura|son|hokkaido|japan)\b/g,
+			' ',
+		)
+		.replace(/\s+/g, '');
+}
+
+/**
+ * Well-known inn areas that are not municipalities themselves: owners
+ * naturally type the onsen area ("定山渓", "Jozankei"), so map it to the
+ * municipality JMA issues warnings for.
+ */
+const AREA_ALIASES: Record<string, string> = {
+	定山渓: '札幌市',
+	jozankei: '札幌市',
+	層雲峡: '上川町',
+	sounkyo: '上川町',
+	阿寒湖: '釧路市',
+	akanko: '釧路市',
+	akan: '釧路市',
+	川湯: '弟子屈町',
+	kawayu: '弟子屈町',
+	支笏湖: '千歳市',
+	shikotsuko: '千歳市',
+	shikotsu: '千歳市',
+	洞爺湖温泉: '洞爺湖町',
+	toyako: '洞爺湖町',
+	湯の川: '函館市',
+	yunokawa: '函館市',
+	朝里川: '小樽市',
+	asarigawa: '小樽市',
+	白金温泉: '美瑛町',
+	shirogane: '美瑛町',
+	十勝川温泉: '音更町',
+	tokachigawa: '音更町',
+};
+
+/** The typed place, then what it most likely means, in order of trust. */
+function candidates(municipality: string): string[] {
+	const typed = normalize(municipality);
+	// "登別温泉" -> "登別", "定山渓温泉" -> "定山渓".
+	const bases = [typed];
+	if (typed.endsWith('温泉') && typed.length > 3) {
+		bases.push(typed.slice(0, -2));
+	}
+	const list: string[] = [];
+	for (const base of bases) {
+		list.push(base);
+		const alias = AREA_ALIASES[base];
+		if (alias) {
+			list.push(normalize(alias));
+		}
+		// A ward inside a city: 札幌市南区 -> 札幌市.
+		const city = /^(.+?市).+区$/.exec(base);
+		if (city?.[1]) {
+			list.push(city[1]);
+		}
+	}
+	const romanAlias = AREA_ALIASES[romanBase(municipality)];
+	if (romanAlias) {
+		list.push(normalize(romanAlias));
+	}
+	return list.filter((c, i) => c.length > 0 && list.indexOf(c) === i);
 }
 
 /** Finds the municipality and its forecast office; Hokkaido first on ties. */
@@ -165,16 +237,27 @@ export function resolveArea(
 	areas: AreaJson,
 	municipality: string,
 ): JmaArea | null {
-	const wanted = normalize(municipality);
-	if (wanted.length === 0) {
-		return null;
+	const roman = romanBase(municipality);
+	for (const wanted of candidates(municipality)) {
+		const area = matchArea(areas, wanted, roman);
+		if (area) {
+			return area;
+		}
 	}
+	return null;
+}
+
+function matchArea(
+	areas: AreaJson,
+	wanted: string,
+	roman: string,
+): JmaArea | null {
 	const matches = Object.entries(areas.class20s).filter(([, entry]) => {
 		const ja = normalize(entry.name);
-		const en = normalize(entry.enName ?? '');
+		const en = romanBase(entry.enName ?? '');
 		return (
 			ja === wanted
-			|| en === wanted
+			|| (roman.length >= 3 && en === roman)
 			|| (wanted.length >= 2 && ja.startsWith(wanted))
 		);
 	});
