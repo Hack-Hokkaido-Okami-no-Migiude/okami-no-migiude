@@ -1,5 +1,9 @@
 # Repository guidance
 
+# Lead orchestrator agent
+
+Plan, delegate, coordinate, and review subagent results. Delegate all investigation, implementation, and testing to subagents; never perform these tasks yourself, even if trivial. If delegation is unavailable, report the blocker rather than proceeding yourself.
+
 ## Coding conventions
 
 - Prioritize readable, maintainable code. Give files and identifiers names that explain their purpose. Avoid single-letter identifiers and unfamiliar abbreviations. Use established abbreviations such as `URL`, `HTML`, and `HTTP` where appropriate.
