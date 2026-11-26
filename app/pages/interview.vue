@@ -258,6 +258,44 @@
 						</template>
 					</div>
 				</div>
+
+				<div class="interview-page__right">
+					<section
+						class="panel interview-page__transcript-panel"
+						aria-labelledby="interview-transcript-heading"
+					>
+						<h2 id="interview-transcript-heading">
+							{{ strings.transcript.heading }}
+						</h2>
+						<p
+							v-if="chat.turns.value.length === 0"
+							class="interview-page__transcript-empty"
+						>
+							{{ strings.transcript.empty }}
+						</p>
+						<ol
+							class="interview-page__transcript"
+							role="log"
+							aria-labelledby="interview-transcript-heading"
+						>
+							<li
+								v-for="(turn, index) in chat.turns.value"
+								:key="index"
+								class="interview-page__turn"
+								:class="`interview-page__turn--${turn.role}`"
+							>
+								<strong class="interview-page__turn-label">{{
+									turn.role === 'agent' ?
+										strings.transcript.agentLabel
+									:	strings.transcript.userLabel
+								}}</strong>
+								<p class="interview-page__turn-message">
+									{{ turn.message }}
+								</p>
+							</li>
+						</ol>
+					</section>
+				</div>
 			</div>
 		</template>
 
@@ -658,13 +696,16 @@
 	.interview-page__columns {
 		display: grid;
 		grid-template-columns: 1fr;
+		gap: 1.5rem;
 
 		@media (min-width: 992px) {
-			grid-template-columns: minmax(0, 5fr);
+			grid-template-columns: minmax(0, 5fr) minmax(0, 4fr);
+			align-items: start;
 		}
 	}
 
-	.interview-page__left {
+	.interview-page__left,
+	.interview-page__right {
 		display: flex;
 		flex-direction: column;
 		gap: 1.5rem;
@@ -685,6 +726,56 @@
 	.interview-page__assessment {
 		font-size: 0.9rem;
 		opacity: 0.85;
+	}
+
+	.interview-page__transcript-empty {
+		font-size: 0.9rem;
+		opacity: 0.85;
+	}
+
+	.interview-page__transcript {
+		display: grid;
+		gap: 0.75rem;
+		list-style: none;
+		padding: 0;
+		margin: 0;
+	}
+
+	.interview-page__turn {
+		overflow-wrap: anywhere;
+	}
+
+	.interview-page__turn-label {
+		display: block;
+		font-size: 0.8125rem;
+		margin-block-end: 0.2rem;
+	}
+
+	.interview-page__turn--agent {
+		padding: 0.85rem 1rem;
+		border: 1px solid var(--bs-border-color);
+		border-radius: 0.65rem;
+
+		.interview-page__turn-label {
+			color: var(--bs-primary);
+		}
+	}
+
+	.interview-page__turn--user {
+		margin-inline-start: clamp(0.75rem, 4vw, 2rem);
+		padding-inline-start: 0.75rem;
+		border-inline-start: 2px solid var(--bs-border-color);
+		font-size: 0.9375rem;
+		opacity: 0.9;
+
+		.interview-page__turn-message {
+			white-space: pre-wrap;
+		}
+	}
+
+	.interview-page__turn-message {
+		margin: 0;
+		white-space: pre-wrap;
 	}
 
 	h2[tabindex='-1'],

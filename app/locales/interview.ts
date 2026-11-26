@@ -90,6 +90,12 @@ const ja = {
 		backHome: 'ホームに戻る',
 		checkAgain: '面談の状態をもう一度確認する',
 	},
+	transcript: {
+		heading: '文字起こし',
+		empty: 'お話しいただいた内容がここに表示されます。',
+		agentLabel: 'シマエナガ',
+		userLabel: 'あなた',
+	},
 	// Live-conversation connection failures (the server-minted session could
 	// not start or dropped). The interview itself keeps running server-side.
 	callFailures: {
@@ -228,6 +234,12 @@ const en: InterviewStrings = {
 		ended: 'The interview has ended. We are waiting for the record to be saved. You can leave this page; the record is saved automatically either way.',
 		backHome: 'Back to home',
 		checkAgain: 'Check the interview status again',
+	},
+	transcript: {
+		heading: 'Transcript',
+		empty: 'The conversation will appear here as you talk.',
+		agentLabel: 'Shima Enaga',
+		userLabel: 'You',
 	},
 	// Live-conversation connection failures (the server-minted session could
 	// not start or dropped). The interview itself keeps running server-side.
