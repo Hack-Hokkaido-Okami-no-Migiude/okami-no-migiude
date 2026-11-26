@@ -21,6 +21,8 @@
 		warningNameEn: string;
 		approvedAt: string | null;
 		sentAt: string | null;
+		channel: 'local' | 'email' | null;
+		deliveryChannel: 'local' | 'email';
 		glossJa: string | null;
 		glossEn: string | null;
 	};
@@ -76,6 +78,7 @@
 	const busy = ref(false);
 	const notice = ref('');
 	const actionError = ref(false);
+	const deliveryFailed = ref(false);
 	const edits = reactive<Record<string, string>>({});
 	const glossOpen = reactive<Record<string, boolean>>({});
 	const newGuest = reactive({
@@ -84,6 +87,7 @@
 		arrivalDate: '',
 		nights: 1,
 		guestCountry: '',
+		contact: '',
 	});
 
 	function adopt(body: SnowPage): void {
@@ -123,6 +127,7 @@
 	): Promise<(SnowPage & { created?: number }) | null> {
 		busy.value = true;
 		actionError.value = false;
+		deliveryFailed.value = false;
 		notice.value = '';
 		try {
 			const response = await fetch(path, {
@@ -131,7 +136,14 @@
 				body: JSON.stringify(body),
 			});
 			if (!response.ok) {
-				actionError.value = true;
+				const failure = (await response.json().catch(() => null)) as {
+					data?: { error?: string };
+				} | null;
+				if (failure?.data?.error === 'delivery_failed') {
+					deliveryFailed.value = true;
+				} else {
+					actionError.value = true;
+				}
 				return null;
 			}
 			const data = (await response.json()) as SnowPage & {
@@ -181,10 +193,12 @@
 			arrivalDate: newGuest.arrivalDate,
 			nights: Number(newGuest.nights),
 			guestCountry: newGuest.guestCountry,
+			contact: newGuest.contact,
 		}).then((data) => {
 			if (data) {
 				newGuest.guestName = '';
 				newGuest.guestCountry = '';
+				newGuest.contact = '';
 			}
 		});
 	}
@@ -356,6 +370,13 @@
 			>
 				{{ t.actionError }}
 			</p>
+			<p
+				v-if="deliveryFailed"
+				class="notice notice--warn"
+				role="alert"
+			>
+				{{ t.deliveryFailed }}
+			</p>
 
 			<section class="snow-guests">
 				<h2 class="section-title">{{ t.guestsTitle }}</h2>
@@ -511,6 +532,16 @@
 							{{ t.approvalNote }}
 						</p>
 						<p
+							v-if="guest.message.status !== 'sent'"
+							class="snow-small snow-destination"
+						>
+							{{
+								guest.message.deliveryChannel === 'email' ?
+									t.willEmail(guest.contact ?? '')
+								:	t.willLocal
+							}}
+						</p>
+						<p
 							v-if="
 								guest.message.status === 'sent'
 								&& guest.message.sentAt
@@ -519,7 +550,11 @@
 						>
 							{{ t.status.sent }}:
 							{{ formatWhen(guest.message.sentAt) }}.
-							{{ t.sentNote }}
+							{{
+								guest.message.channel === 'email' ?
+									t.sentEmailNote(guest.contact ?? '')
+								:	t.sentNote
+							}}
 						</p>
 					</div>
 				</article>
@@ -583,6 +618,14 @@
 								v-model="newGuest.guestCountry"
 								type="text"
 								maxlength="60"
+							/>
+						</label>
+						<label class="form-field">
+							<span>{{ t.contactLabel }}</span>
+							<input
+								v-model="newGuest.contact"
+								type="email"
+								maxlength="200"
 							/>
 						</label>
 						<button
@@ -708,6 +751,10 @@
 		padding: 0.75rem;
 		border-radius: var(--radius-control);
 		margin: 0;
+	}
+	.snow-destination {
+		font-weight: 600;
+		color: var(--ink);
 	}
 	.snow-actions {
 		display: flex;

@@ -217,6 +217,9 @@ function initSchema(db: DatabaseSync): void {
 			created_at TEXT NOT NULL,
 			approved_at TEXT,
 			sent_at TEXT,
+			-- How a sent message went out: 'email' (Resend) or 'local' (the
+			-- demo guest outbox under DATA_DIR). Null until sent.
+			channel TEXT CHECK (channel IS NULL OR channel IN ('local', 'email')),
 			CHECK (status NOT IN ('approved', 'sent') OR approved_at IS NOT NULL),
 			CHECK (status <> 'sent' OR sent_at IS NOT NULL)
 		);
@@ -241,6 +244,11 @@ function initSchema(db: DatabaseSync): void {
  * 'smtp' rows map to 'resend', the only live provider.
  */
 function migrateLegacySchema(db: DatabaseSync): void {
+	// Snow-day messages created before email delivery have no channel column.
+	const guestMessageColumns = tableColumns(db, 'guest_messages');
+	if (guestMessageColumns.size > 0 && !guestMessageColumns.has('channel')) {
+		db.exec('ALTER TABLE guest_messages ADD COLUMN channel TEXT;');
+	}
 	// Legacy mail_outbox tables still declare the 'smtp' CHECK slot; detect
 	// them from the stored CREATE statement, which the fresh schema never has.
 	const mailTableSql = (

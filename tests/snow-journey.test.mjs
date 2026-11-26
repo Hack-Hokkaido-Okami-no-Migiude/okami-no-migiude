@@ -79,7 +79,7 @@ function startJmaStub() {
 	});
 }
 
-async function startServer(jmaBaseUrl, dataDir) {
+async function startServer(jmaBaseUrl, dataDir, extraEnv = {}) {
 	const port = await new Promise((resolve) => {
 		const probe = http.createServer();
 		probe.listen(0, '127.0.0.1', () => {
@@ -100,6 +100,8 @@ async function startServer(jmaBaseUrl, dataDir) {
 			STAFF_PASSWORD: 'test-staff-password-1234',
 			JMA_BASE_URL: jmaBaseUrl,
 			NEON_DATABASE_URL: '',
+			MAIL_RESEND_API_KEY: '',
+			...extraEnv,
 		},
 		stdio: ['ignore', 'inherit', 'inherit'],
 	});
@@ -357,6 +359,180 @@ test(
 		} finally {
 			await server.close();
 			stub.close();
+		}
+	},
+);
+
+function startResendStub(failFirst) {
+	const calls = [];
+	let failuresLeft = failFirst;
+	return new Promise((resolve) => {
+		const server = http.createServer((req, res) => {
+			let raw = '';
+			req.on('data', (c) => (raw += c));
+			req.on('end', () => {
+				calls.push({
+					path: req.url,
+					auth: req.headers.authorization,
+					key: req.headers['idempotency-key'],
+					body: JSON.parse(raw || '{}'),
+				});
+				if (failuresLeft > 0) {
+					failuresLeft -= 1;
+					res.writeHead(500).end('{}');
+					return;
+				}
+				res.writeHead(200, { 'content-type': 'application/json' });
+				res.end(JSON.stringify({ id: 'email_stub' }));
+			});
+		});
+		server.listen(0, '127.0.0.1', () => resolve({ server, calls }));
+	});
+}
+
+test(
+	'snow-day flow: approved message to a guest email goes out through Resend',
+	{ timeout: 120000 },
+	async () => {
+		assertBuilt();
+		const jma = await startJmaStub();
+		const resend = await startResendStub(1);
+		const dataDir = path.join(
+			repoRoot,
+			'.data',
+			'test',
+			`snow-mail-${process.pid}`,
+		);
+		fs.rmSync(dataDir, { recursive: true, force: true });
+		const server = await startServer(
+			`http://127.0.0.1:${jma.address().port}`,
+			dataDir,
+			{
+				MAIL_RESEND_API_KEY: 're_test_stub',
+				MAIL_RESEND_BASE_URL: `http://127.0.0.1:${resend.server.address().port}`,
+				MAIL_FROM: '',
+				SNOW_DEMO_GUEST_EMAIL: 'presenter@example.test',
+			},
+		);
+		try {
+			const base = server.baseUrl;
+			const jar = await signup(base, 'snow-mail@example.test', '札幌市');
+			let page = await request(base, 'POST', '/api/snow/sample-guests', {
+				jar,
+				body: {},
+			});
+			const emily = page.json.guests.find((g) => g.language === 'en');
+			assert.equal(emily.contact, 'presenter@example.test');
+			page = await request(base, 'POST', '/api/snow/drafts', {
+				jar,
+				body: { mode: 'simulate' },
+			});
+			const byLang = Object.fromEntries(
+				page.json.guests.map((g) => [g.language, g.message]),
+			);
+			assert.equal(byLang.en.deliveryChannel, 'email');
+			assert.equal(
+				byLang['zh-TW'].deliveryChannel,
+				'local',
+				'a LINE contact stays local',
+			);
+
+			// Drafts never reach Resend.
+			const early = await request(
+				base,
+				'POST',
+				`/api/snow/messages/${byLang.en.id}`,
+				{ jar, body: { action: 'send' } },
+			);
+			expectStatus('send draft', early, 409);
+			assert.equal(resend.calls.length, 0);
+
+			await request(base, 'POST', `/api/snow/messages/${byLang.en.id}`, {
+				jar,
+				body: { action: 'approve' },
+			});
+
+			// First attempt: Resend fails -> 502, still approved.
+			const failed = await request(
+				base,
+				'POST',
+				`/api/snow/messages/${byLang.en.id}`,
+				{ jar, body: { action: 'send' } },
+			);
+			expectStatus('resend failure', failed, 502);
+			assert.equal(failed.json.data.error, 'delivery_failed');
+			page = await request(base, 'GET', '/api/snow', {
+				jar,
+				origin: null,
+			});
+			assert.equal(
+				page.json.guests.find((g) => g.language === 'en').message
+					.status,
+				'approved',
+			);
+
+			// Retry: sent, same idempotency key.
+			page = await request(
+				base,
+				'POST',
+				`/api/snow/messages/${byLang.en.id}`,
+				{ jar, body: { action: 'send' } },
+			);
+			expectStatus('resend send', page, 200);
+			const sent = page.json.guests.find(
+				(g) => g.language === 'en',
+			).message;
+			assert.equal(sent.status, 'sent');
+			assert.equal(sent.channel, 'email');
+			assert.equal(resend.calls.length, 2);
+			assert.equal(resend.calls[0].key, byLang.en.id);
+			assert.equal(resend.calls[1].key, byLang.en.id);
+			const call = resend.calls[1];
+			assert.equal(call.path, '/emails');
+			assert.equal(call.auth, 'Bearer re_test_stub');
+			assert.equal(call.body.to, 'presenter@example.test');
+			assert.equal(call.body.from, 'やまなみ荘 <onboarding@resend.dev>');
+			assert.ok(call.body.subject.includes('snow update'));
+			assert.ok(call.body.text.includes('Dear Emily Carter'));
+			assert.equal(
+				fs.existsSync(
+					path.join(dataDir, 'guest-outbox', `${byLang.en.id}.txt`),
+				),
+				false,
+			);
+
+			// A guest without an email address still goes to the local outbox.
+			await request(
+				base,
+				'POST',
+				`/api/snow/messages/${byLang['zh-TW'].id}`,
+				{ jar, body: { action: 'approve' } },
+			);
+			page = await request(
+				base,
+				'POST',
+				`/api/snow/messages/${byLang['zh-TW'].id}`,
+				{ jar, body: { action: 'send' } },
+			);
+			assert.equal(
+				page.json.guests.find((g) => g.language === 'zh-TW').message
+					.channel,
+				'local',
+			);
+			assert.equal(resend.calls.length, 2);
+			assert.ok(
+				fs.existsSync(
+					path.join(
+						dataDir,
+						'guest-outbox',
+						`${byLang['zh-TW'].id}.txt`,
+					),
+				),
+			);
+		} finally {
+			await server.close();
+			jma.close();
+			resend.server.close();
 		}
 	},
 );

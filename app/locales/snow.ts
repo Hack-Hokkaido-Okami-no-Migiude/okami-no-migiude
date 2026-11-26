@@ -48,6 +48,11 @@ type SnowStrings = {
 	send: string;
 	discard: string;
 	sentNote: string;
+	sentEmailNote: (to: string) => string;
+	willEmail: (to: string) => string;
+	willLocal: string;
+	deliveryFailed: string;
+	contactLabel: string;
 	approvalNote: string;
 	addGuestTitle: string;
 	guestName: string;
@@ -119,6 +124,13 @@ export const snowStrings: Record<Locale, SnowStrings> = {
 		discard: '取り消す',
 		sentNote:
 			'デモのため、実際には届けず、アプリの中の送信記録（guest-outbox）に保存しました。',
+		sentEmailNote: (to) => `${to} にメールで送りました。`,
+		willEmail: (to) => `送り先：メール（${to}）`,
+		willLocal:
+			'送り先：アプリの中の送信記録のみ（デモ。お客様には届きません）',
+		deliveryFailed:
+			'メールを送れませんでした。承認済みのまま残してあるので、少し待ってからもう一度「送る」を押してください。',
+		contactLabel: 'メールアドレス（任意）',
 		approvalNote: '承認していない下書きは送れません。',
 		addGuestTitle: 'お客様を追加する',
 		guestName: 'お名前',
@@ -196,6 +208,13 @@ export const snowStrings: Record<Locale, SnowStrings> = {
 		discard: 'Discard',
 		sentNote:
 			'Demo: not delivered to the guest. Saved to the local send log (guest-outbox) inside the app.',
+		sentEmailNote: (to) => `Sent by email to ${to}.`,
+		willEmail: (to) => `Goes to: email (${to})`,
+		willLocal:
+			'Goes to: the local send log only (demo, the guest does not receive it)',
+		deliveryFailed:
+			'The email could not be sent. The message is still approved, so wait a moment and press Send again.',
+		contactLabel: 'Email address (optional)',
 		approvalNote: 'A draft cannot be sent before it is approved.',
 		addGuestTitle: 'Add a guest',
 		guestName: 'Name',
