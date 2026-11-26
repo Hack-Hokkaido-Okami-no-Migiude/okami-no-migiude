@@ -267,33 +267,37 @@
 						<h2 id="interview-transcript-heading">
 							{{ strings.transcript.heading }}
 						</h2>
-						<p
-							v-if="chat.turns.value.length === 0"
-							class="interview-page__transcript-empty"
+						<div
+							ref="transcriptScroll"
+							class="interview-page__transcript-scroll"
 						>
-							{{ strings.transcript.empty }}
-						</p>
-						<ol
-							class="interview-page__transcript"
-							role="log"
-							aria-labelledby="interview-transcript-heading"
-						>
-							<li
-								v-for="(turn, index) in chat.turns.value"
-								:key="index"
-								class="interview-page__turn"
-								:class="`interview-page__turn--${turn.role}`"
+							<p
+								v-if="chat.turns.value.length === 0"
+								class="interview-page__transcript-empty"
 							>
-								<strong class="interview-page__turn-label">{{
-									turn.role === 'agent' ?
-										strings.transcript.agentLabel
-									:	strings.transcript.userLabel
-								}}</strong>
-								<p class="interview-page__turn-message">
-									{{ turn.message }}
-								</p>
-							</li>
-						</ol>
+								{{ strings.transcript.empty }}
+							</p>
+							<ol
+								class="interview-page__transcript"
+								role="log"
+								aria-labelledby="interview-transcript-heading"
+							>
+								<li
+									v-for="(turn, index) in chat.turns.value"
+									:key="index"
+									class="interview-page__turn"
+									:class="`interview-page__turn--${turn.role}`"
+								>
+									<strong
+										class="interview-page__turn-label"
+										>{{ turnLabel(turn) }}</strong
+									>
+									<p class="interview-page__turn-message">
+										{{ turnText(turn) }}
+									</p>
+								</li>
+							</ol>
+						</div>
 					</section>
 				</div>
 			</div>
@@ -346,6 +350,7 @@
 	import InterviewConsentGate from '../components/interview/InterviewConsentGate.vue';
 	import type { SessionUser } from '../../shared/types/domain.ts';
 	import { useInterviewConversation } from '../composables/useInterviewConversation.ts';
+	import type { InterviewConversationTurn } from '../composables/useInterviewConversation.ts';
 	import { createInterviewFlow } from '../composables/useInterviewFlow.ts';
 	import { interviewStrings } from '../locales/interview.ts';
 
@@ -460,6 +465,49 @@
 				strings.value.research.started
 			:	strings.value.research.queued;
 	});
+
+	function turnLabel(turn: InterviewConversationTurn): string {
+		if (turn.role === 'system') {
+			return strings.value.transcript.systemLabel;
+		}
+		return turn.role === 'agent' ?
+				strings.value.transcript.agentLabel
+			:	strings.value.transcript.userLabel;
+	}
+
+	function turnText(turn: InterviewConversationTurn): string {
+		if (turn.role !== 'system') {
+			return turn.message;
+		}
+		const { transcript } = strings.value;
+		switch (turn.event) {
+			case 'research-completed':
+				return turn.caseCount === 1 ?
+						transcript.researchCompletedOne
+					:	transcript.researchCompleted.replace(
+							'{count}',
+							String(turn.caseCount ?? 0),
+						);
+			case 'research-empty':
+				return transcript.researchEmpty;
+			case 'research-failed':
+				return transcript.researchFailed;
+		}
+	}
+
+	// Long calls push older captions out of view; keep the newest one visible.
+	const transcriptScroll = ref<HTMLDivElement | null>(null);
+
+	watch(
+		() => chat.turns.value.length,
+		async () => {
+			await nextTick();
+			const scrollArea = transcriptScroll.value;
+			if (scrollArea !== null) {
+				scrollArea.scrollTop = scrollArea.scrollHeight;
+			}
+		},
+	);
 
 	const assessmentText = computed(() => {
 		if (flow.phase.value !== 'submitted') {
@@ -761,6 +809,13 @@
 		}
 	}
 
+	.interview-page__transcript-scroll {
+		display: grid;
+		gap: 0.75rem;
+		max-height: min(24rem, 45vh);
+		overflow-y: auto;
+	}
+
 	.interview-page__turn--user {
 		margin-inline-start: clamp(0.75rem, 4vw, 2rem);
 		padding-inline-start: 0.75rem;
@@ -770,6 +825,18 @@
 
 		.interview-page__turn-message {
 			white-space: pre-wrap;
+		}
+	}
+
+	.interview-page__turn--system {
+		padding: 0.6rem 0.75rem;
+		border-inline-start: 3px solid var(--bs-primary);
+		background: var(--bs-tertiary-bg);
+		font-size: 0.875rem;
+		opacity: 0.9;
+
+		.interview-page__turn-label {
+			color: var(--bs-secondary);
 		}
 	}
 

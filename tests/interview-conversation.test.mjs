@@ -572,3 +572,71 @@ test('a dropped connection moves the call to the ended state', async () => {
 		uninstallBrowserStubs();
 	}
 });
+
+test('a fired research handoff is announced once as a system turn', async () => {
+	const { starts, sessions } = installBrowserStubs();
+	try {
+		const chat = useInterviewConversation();
+		await chat.start({
+			conversationToken: 'token-1',
+			language: 'ja',
+			...BUSINESS,
+		});
+		const { callbacks } = splitInvocation(starts[0]);
+		callbacks.onMessage({
+			role: 'user',
+			message: 'よろしくお願いします。',
+		});
+		// Pending research states add nothing to the caption stream.
+		chat.handOffResearch({ status: 'started', started: true, cases: null });
+		assert.equal(chat.turns.value.length, 1);
+
+		chat.handOffResearch({
+			status: 'completed',
+			cases: [{ title: 'A' }, { title: 'B' }],
+		});
+		assert.deepEqual(chat.turns.value[1], {
+			role: 'system',
+			event: 'research-completed',
+			caseCount: 2,
+		});
+		// The handoff stays idempotent: no second announcement or update.
+		chat.handOffResearch({
+			status: 'completed',
+			cases: [{ title: 'A' }, { title: 'B' }],
+		});
+		assert.equal(chat.turns.value.length, 2);
+		assert.equal(sessions[0].updates.length, 1);
+	} finally {
+		uninstallBrowserStubs();
+	}
+});
+
+test('empty and failed research handoffs carry their own system event', async () => {
+	installBrowserStubs();
+	try {
+		const empty = useInterviewConversation();
+		await empty.start({
+			conversationToken: 'token-1',
+			language: 'ja',
+			...BUSINESS,
+		});
+		empty.handOffResearch({ status: 'completed', cases: [] });
+		assert.deepEqual(empty.turns.value, [
+			{ role: 'system', event: 'research-empty' },
+		]);
+
+		const failed = useInterviewConversation();
+		await failed.start({
+			conversationToken: 'token-2',
+			language: 'ja',
+			...BUSINESS,
+		});
+		failed.handOffResearch({ status: 'failed' });
+		assert.deepEqual(failed.turns.value, [
+			{ role: 'system', event: 'research-failed' },
+		]);
+	} finally {
+		uninstallBrowserStubs();
+	}
+});

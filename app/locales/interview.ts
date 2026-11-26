@@ -95,6 +95,12 @@ const ja = {
 		empty: 'お話しいただいた内容がここに表示されます。',
 		agentLabel: 'シマエナガ',
 		userLabel: 'あなた',
+		systemLabel: 'システム',
+		researchCompletedOne: '調査データ：取り組み事例1件を会話に渡しました。',
+		researchCompleted:
+			'調査データ：取り組み事例{count}件を会話に渡しました。',
+		researchEmpty: '調査データ：参考になる事例が見つかりませんでした。',
+		researchFailed: '調査データ：取得に失敗しました。',
 	},
 	// Live-conversation connection failures (the server-minted session could
 	// not start or dropped). The interview itself keeps running server-side.
@@ -240,6 +246,13 @@ const en: InterviewStrings = {
 		empty: 'The conversation will appear here as you talk.',
 		agentLabel: 'Shima Enaga',
 		userLabel: 'You',
+		systemLabel: 'System',
+		researchCompletedOne:
+			'Research: one sourced case was shared with the conversation.',
+		researchCompleted:
+			'Research: {count} sourced cases were shared with the conversation.',
+		researchEmpty: 'Research: no sourced cases were found.',
+		researchFailed: 'Research: the lookup failed.',
 	},
 	// Live-conversation connection failures (the server-minted session could
 	// not start or dropped). The interview itself keeps running server-side.

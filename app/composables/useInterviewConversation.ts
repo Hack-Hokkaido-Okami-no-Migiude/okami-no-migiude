@@ -12,10 +12,17 @@
 import { ref } from 'vue';
 import type { InterviewResearchSurface } from '../../shared/types/domain.ts';
 
-export type InterviewConversationTurn = {
-	role: 'agent' | 'user';
-	message: string;
-};
+/** System caption events the page renders in the transcript stream. */
+export type InterviewSystemTurnEvent =
+	'research-completed' | 'research-empty' | 'research-failed';
+
+/**
+ * One caption row. Agent and owner turns carry verbatim speech; system
+ * turns are structured events the page localizes (they are not speech).
+ */
+export type InterviewConversationTurn =
+	| { role: 'agent' | 'user'; message: string }
+	| { role: 'system'; event: InterviewSystemTurnEvent; caseCount?: number };
 
 export type InterviewConversationFailure =
 	'unsupported' | 'sdk' | 'mic' | 'connection';
@@ -103,6 +110,18 @@ export function useInterviewConversation() {
 		}
 	}
 
+	/** Announces a research handoff in the caption stream (once per call). */
+	function addSystemTurn(
+		event: InterviewSystemTurnEvent,
+		caseCount?: number,
+	) {
+		turns.value.push(
+			caseCount === undefined ?
+				{ role: 'system', event }
+			:	{ role: 'system', event, caseCount },
+		);
+	}
+
 	async function start(
 		options: InterviewConversationStartOptions,
 	): Promise<boolean> {
@@ -158,6 +177,7 @@ export function useInterviewConversation() {
 					if (
 						typeof corrected === 'string'
 						&& previous !== undefined
+						&& previous.role !== 'system'
 						&& previous.message === original
 					) {
 						previous.message = corrected.trim();
@@ -240,11 +260,16 @@ export function useInterviewConversation() {
 				:	"Linkup research returned no sourced cases. Continue the interview using the owner's answers. Describe any general DX ideas as hypotheses.";
 			conversation.sendContextualUpdate(context);
 			researchHandedOff.value = true;
+			addSystemTurn(
+				cases.length ? 'research-completed' : 'research-empty',
+				cases.length ? cases.length : undefined,
+			);
 		} else if (research.status === 'failed') {
 			conversation.sendContextualUpdate(
 				"Linkup research failed. Continue the interview using the owner's answers. Describe any general DX ideas as hypotheses.",
 			);
 			researchHandedOff.value = true;
+			addSystemTurn('research-failed');
 		}
 	}
 
