@@ -29,7 +29,6 @@ const shellJa = {
 		ctaSignIn: 'サインイン',
 		startOwnerTitle: '面談の準備ができています',
 		ctaStartOwner: '面談を始める',
-		ctaSnow: '雪の日の連絡',
 		ctaStartOwnerHint: 'サインイン後に面談ページへ進みます。',
 		stepsTitle: '利用の流れ',
 		steps: [
@@ -119,7 +118,6 @@ const shellEn: ShellMessages = {
 		ctaSignIn: 'Sign in',
 		startOwnerTitle: 'Ready to start your interview',
 		ctaStartOwner: 'Start the interview',
-		ctaSnow: 'Snow-day messages',
 		ctaStartOwnerHint:
 			'You will continue on the interview page after signing in.',
 		stepsTitle: 'How it works',
